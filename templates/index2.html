@@ -525,15 +525,6 @@ body.light-mode h2, body.light-mode h3 { color: #1a1a24; }
     </style>
   </head>
   <body>
-    <div id="version-badge" style="
-      position:fixed;
-      top:8px;
-      left:10px;
-      font-size:11px;
-      color:#aaa;
-      z-index:9998;
-      pointer-events:none;
-    ">v-.-.-</div>
     <div class="container">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px">
         <h1>解析ツール</h1>
@@ -2391,20 +2382,7 @@ function scrollWaveformIfNeeded(currentTime) {
       // ハートビート: 5秒ごとにサーバーに信号を送る
       setInterval(() => {
         fetch("/heartbeat", { method: "POST" }).catch(() => {});
-      }, 5000);
-    </script>
-
-    <script>
-      // バージョンバッジ更新
-      fetch("/check-update")
-        .then(r => r.json())
-        .then(data => {
-          const badge = document.getElementById("version-badge");
-          if (badge && data.local_version) {
-            badge.textContent = "v" + data.local_version;
-          }
-        })
-        .catch(() => {});
+      }, 1000);
     </script>
   </body>
 </html>

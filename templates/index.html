@@ -430,7 +430,7 @@
       // ハートビート: 5秒ごとにサーバーに信号を送る
       setInterval(() => {
         fetch("/heartbeat", { method: "POST" }).catch(() => {});
-      }, 5000);
+      }, 1000);
     </script>
 
     <!-- 自動更新オーバーレイ -->

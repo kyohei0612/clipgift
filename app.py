@@ -406,10 +406,10 @@ _heartbeat_lock = threading.Lock()
 def _heartbeat_watchdog():
     """ハートビートが途絶えたらサーバーを終了する"""
     while True:
-        time.sleep(5)
+        time.sleep(1)
         with _heartbeat_lock:
             elapsed = time.time() - _last_heartbeat
-        if elapsed > 15:
+        if elapsed > 3:
             print("💤 ブラウザが閉じられました。サーバーを終了します。", flush=True)
             os._exit(0)
 
