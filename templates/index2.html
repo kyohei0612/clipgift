@@ -525,6 +525,19 @@ body.light-mode h2, body.light-mode h3 { color: #1a1a24; }
     </style>
   </head>
   <body>
+    <div style="position:fixed;top:8px;left:10px;z-index:9998;display:flex;align-items:center;gap:8px;">
+      <div id="version-badge" style="font-size:11px;color:#aaa;pointer-events:none;">v-.-.-</div>
+      <button onclick="manualCheckUpdate()" style="
+        font-size:11px;
+        color:#aaa;
+        background:transparent;
+        border:1px solid #555;
+        border-radius:4px;
+        padding:2px 8px;
+        cursor:pointer;
+        line-height:1.4;
+      ">更新確認</button>
+    </div>
     <div class="container">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px">
         <h1>解析ツール</h1>
@@ -2379,10 +2392,155 @@ function scrollWaveformIfNeeded(currentTime) {
     </script>
   
     <script>
-      // ハートビート: 5秒ごとにサーバーに信号を送る
+      // ハートビート: 1秒ごとにサーバーに信号を送る
       setInterval(() => {
         fetch("/heartbeat", { method: "POST" }).catch(() => {});
       }, 1000);
+    </script>
+
+    <!-- 自動更新オーバーレイ -->
+    <div id="update-overlay" style="
+      display:none;
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.65);
+      z-index:9999;
+      align-items:center;
+      justify-content:center;
+    ">
+      <div style="
+        background:#1e1e2e;
+        color:#cdd6f4;
+        border-radius:12px;
+        padding:32px 40px;
+        min-width:320px;
+        text-align:center;
+        box-shadow:0 8px 32px rgba(0,0,0,0.5);
+        font-family:'Segoe UI',sans-serif;
+      ">
+        <div id="update-icon" style="font-size:36px;margin-bottom:12px;">🔄</div>
+        <div id="update-title" style="font-size:18px;font-weight:bold;margin-bottom:8px;">アップデート確認中...</div>
+        <div id="update-msg" style="font-size:13px;color:#a6adc8;margin-bottom:20px;min-height:20px;"></div>
+        <div id="update-spinner" style="display:none;margin-bottom:16px;">
+          <div style="width:36px;height:36px;border:4px solid #45475a;border-top-color:#89b4fa;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto;"></div>
+        </div>
+        <button id="update-close-btn" onclick="closeUpdateOverlay()" style="
+          display:none;
+          background:#89b4fa;
+          color:#1e1e2e;
+          border:none;
+          padding:10px 28px;
+          border-radius:6px;
+          font-size:15px;
+          font-weight:bold;
+          cursor:pointer;
+        ">閉じる</button>
+        <button id="update-skip-btn" onclick="closeUpdateOverlay()" style="
+          display:none;
+          background:transparent;
+          color:#6c7086;
+          border:1px solid #45475a;
+          padding:8px 20px;
+          border-radius:6px;
+          font-size:13px;
+          cursor:pointer;
+        ">スキップ</button>
+      </div>
+    </div>
+
+    <script>
+    (function() {
+      const overlay   = document.getElementById("update-overlay");
+      const title     = document.getElementById("update-title");
+      const msg       = document.getElementById("update-msg");
+      const icon      = document.getElementById("update-icon");
+      const spinner   = document.getElementById("update-spinner");
+      const closeBtn  = document.getElementById("update-close-btn");
+      const skipBtn   = document.getElementById("update-skip-btn");
+
+      function startUpdate() {
+        icon.textContent      = "🔄";
+        title.textContent     = "更新中...";
+        msg.textContent       = "しばらくお待ちください";
+        spinner.style.display = "block";
+        closeBtn.style.display = "none";
+        skipBtn.style.display  = "none";
+        fetch("/start-update", { method: "POST" })
+          .then(() => pollUpdateState())
+          .catch(() => {
+            icon.textContent      = "❌";
+            title.textContent     = "更新に失敗しました";
+            spinner.style.display = "none";
+            skipBtn.style.display = "inline-block";
+          });
+      }
+
+      function pollUpdateState() {
+        const timer = setInterval(() => {
+          fetch("/update-state")
+            .then(r => r.json())
+            .then(state => {
+              msg.textContent = state.message;
+              if (state.status === "done") {
+                clearInterval(timer);
+                icon.textContent       = "✅";
+                title.textContent      = "更新しました";
+                msg.textContent        = "次回起動時に反映されます";
+                spinner.style.display  = "none";
+                closeBtn.style.display = "inline-block";
+              } else if (state.status === "error") {
+                clearInterval(timer);
+                icon.textContent      = "❌";
+                title.textContent     = "更新に失敗しました";
+                spinner.style.display = "none";
+                skipBtn.style.display = "inline-block";
+              }
+            })
+            .catch(() => clearInterval(timer));
+        }, 800);
+      }
+
+      window.closeUpdateOverlay = function() {
+        overlay.style.display = "none";
+      };
+
+      window.manualCheckUpdate = function() {
+        overlay.style.display = "flex";
+        icon.textContent       = "🔄";
+        title.textContent      = "更新確認中...";
+        msg.textContent        = "";
+        spinner.style.display  = "none";
+        closeBtn.style.display = "none";
+        skipBtn.style.display  = "none";
+        fetch("/check-update")
+          .then(r => r.json())
+          .then(data => {
+            const badge = document.getElementById("version-badge");
+            if (badge && data.local_version) badge.textContent = "v" + data.local_version;
+            if (data.error || !data.has_update) {
+              icon.textContent       = "✅";
+              title.textContent      = "最新バージョンです";
+              msg.textContent        = data.local_version ? "v" + data.local_version : "";
+              closeBtn.style.display = "inline-block";
+              return;
+            }
+            startUpdate();
+          })
+          .catch(() => closeUpdateOverlay());
+      };
+
+      // 起動時自動チェック
+      overlay.style.display = "flex";
+      fetch("/check-update")
+        .then(r => r.json())
+        .then(data => {
+          const badge = document.getElementById("version-badge");
+          if (badge && data.local_version) badge.textContent = "v" + data.local_version;
+          if (data.error || !data.has_update) { closeUpdateOverlay(); return; }
+          startUpdate();
+        })
+        .catch(() => closeUpdateOverlay());
+    })();
     </script>
   </body>
 </html>
