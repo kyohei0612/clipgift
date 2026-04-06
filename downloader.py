@@ -194,7 +194,7 @@ def download_chat(url, progress_path=None):
         with open(out, "a", encoding="utf-8") as f:
             for t, author, msg, offset in msgs:
                 total += 1
-                print(f"{t},{author},{msg}", flush=True)
+                # 個別コメントはprintしない（ログが埋まるため）
                 f.write(f"{t},{author},{msg}\n")
             f.flush()
             os.fsync(f.fileno())
@@ -205,15 +205,14 @@ def download_chat(url, progress_path=None):
             break
         continuation = next_c
 
-        if i % 20 == 0:
-            elapsed = int(time.time() - start_time)
-            print(f"⏳ {elapsed}s経過 / {total}件取得 / 現在 {max_seen_offset//1000}s")
+        elapsed = int(time.time() - start_time)
+        if i % 5 == 0:
+            print(f"⏳ チャット取得中: {total}件 / 動画位置 {max_seen_offset//1000}s / {elapsed}s経過", flush=True)
 
         # 進捗をファイルに書き込む
         if progress_path and duration > 0:
             offset_pct = min((max_seen_offset / 1000) / duration, 1.0)
             # 経過時間ベースの進捗（動画1秒≒0.08s処理と仮定、上限は offset_pct を超えない）
-            elapsed = time.time() - start_time
             time_pct = min(elapsed / max(duration * 0.08, 1), 1.0)
             # offset_pctが動いていればそちら優先、止まっているときは time_pct で補完
             local_pct = max(offset_pct, min(time_pct, offset_pct + 0.1))

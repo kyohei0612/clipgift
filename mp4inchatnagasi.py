@@ -240,7 +240,7 @@ _ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 def get_video_info(video_path):
     """ffprobeで動画のfps/width/heightを取得"""
-    ffprobe_path = r"C:\ffmpeg\bin\ffprobe.exe"
+    ffprobe_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "bin", "ffprobe.exe")
     cmd = [
         ffprobe_path, "-v", "quiet", "-print_format", "json",
         "-show_streams", video_path
