@@ -409,6 +409,13 @@ def _heartbeat_watchdog():
         time.sleep(1)
         with _heartbeat_lock:
             elapsed = time.time() - _last_heartbeat
+        # 更新中はwatchdogを無効化
+        try:
+            state = auto_update.get_update_state()
+            if state.get("status") == "updating":
+                continue
+        except Exception:
+            pass
         if elapsed > 3:
             print("💤 ブラウザが閉じられました。サーバーを終了します。", flush=True)
             os._exit(0)
