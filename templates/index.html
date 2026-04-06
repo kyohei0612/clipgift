@@ -152,15 +152,19 @@
     </style>
   </head>
   <body>
-    <div id="version-badge" style="
-      position:fixed;
-      top:8px;
-      left:10px;
-      font-size:11px;
-      color:#aaa;
-      z-index:9998;
-      pointer-events:none;
-    ">v-.-.-</div>
+    <div style="position:fixed;top:8px;left:10px;z-index:9998;display:flex;align-items:center;gap:8px;">
+      <div id="version-badge" style="font-size:11px;color:#aaa;pointer-events:none;">v-.-.-</div>
+      <button onclick="manualCheckUpdate()" style="
+        font-size:11px;
+        color:#aaa;
+        background:transparent;
+        border:1px solid #555;
+        border-radius:4px;
+        padding:2px 8px;
+        cursor:pointer;
+        line-height:1.4;
+      ">更新確認</button>
+    </div>
     <h1>YouTube 動画＆チャットダウンロードツール</h1>
 
 
@@ -539,6 +543,42 @@
             });
         })
         .catch(() => closeUpdateOverlay());
+
+      window.manualCheckUpdate = function() {
+        overlay.style.display  = "flex";
+        icon.textContent       = "🔄";
+        title.textContent      = "更新確認中...";
+        msg.textContent        = "";
+        spinner.style.display  = "none";
+        closeBtn.style.display = "none";
+        skipBtn.style.display  = "none";
+        fetch("/check-update")
+          .then(r => r.json())
+          .then(data => {
+            const badge = document.getElementById("version-badge");
+            if (badge && data.local_version) badge.textContent = "v" + data.local_version;
+            if (data.error || !data.has_update) {
+              icon.textContent       = "✅";
+              title.textContent      = "最新バージョンです";
+              msg.textContent        = data.local_version ? "v" + data.local_version : "";
+              closeBtn.style.display = "inline-block";
+              return;
+            }
+            icon.textContent      = "🔄";
+            title.textContent     = "更新中...";
+            msg.textContent       = "しばらくお待ちください";
+            spinner.style.display = "block";
+            fetch("/start-update", { method: "POST" })
+              .then(() => pollUpdateState())
+              .catch(() => {
+                icon.textContent      = "❌";
+                title.textContent     = "更新に失敗しました";
+                spinner.style.display = "none";
+                skipBtn.style.display = "inline-block";
+              });
+          })
+          .catch(() => closeUpdateOverlay());
+      };
 
       window.closeUpdateOverlay = function() {
         overlay.style.display = "none";
