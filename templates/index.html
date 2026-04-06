@@ -465,7 +465,7 @@
             margin:0 auto;
           "></div>
         </div>
-        <button id="update-close-btn" onclick="waitAndReload()" style="
+        <button id="update-close-btn" onclick="closeUpdateOverlay()" style="
           display:none;
           background:#89b4fa;
           color:#1e1e2e;
@@ -533,18 +533,6 @@
         })
         .catch(() => closeUpdateOverlay());
 
-      window.waitAndReload = function() {
-        title.textContent     = "再起動中...";
-        closeBtn.style.display = "none";
-        spinner.style.display  = "block";
-        // サーバーが応答するまで500msごとにポーリング
-        const t = setInterval(() => {
-          fetch("/heartbeat", { method: "POST" })
-            .then(r => { if (r.ok) { clearInterval(t); location.reload(); } })
-            .catch(() => {});
-        }, 500);
-      };
-
       window.closeUpdateOverlay = function() {
         overlay.style.display = "none";
       };
@@ -558,8 +546,8 @@
               if (state.status === "done") {
                 clearInterval(timer);
                 icon.textContent        = "✅";
-                title.textContent       = "新しいバージョンがあるので更新しました";
-                msg.textContent         = "";
+                title.textContent       = "更新しました";
+                msg.textContent         = "次回起動時に反映されます";
                 spinner.style.display   = "none";
                 closeBtn.style.display  = "inline-block";
               } else if (state.status === "error") {

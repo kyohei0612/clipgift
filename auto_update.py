@@ -191,11 +191,7 @@ def run_update_async():
 
             with _update_lock:
                 _update_state["status"] = "done"
-                _update_state["message"] = "更新完了。再起動します..."
-
-            # 2秒後にサーバー再起動
-            time.sleep(2)
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+                _update_state["message"] = "次回起動時に反映されます"
 
         except Exception as e:
             with _update_lock:
