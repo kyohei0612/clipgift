@@ -1,6 +1,5 @@
 Set WshShell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
-Set http = CreateObject("WinHttp.WinHttpRequest.5.1")
 
 ' スクリプトがあるフォルダを取得
 Dim appDir
@@ -32,20 +31,8 @@ End If
 WshShell.Environment("Process")("LAUNCHED_BY_VBS") = "1"
 WshShell.Run """" & pythonExe & """ """ & appDir & "\app.py""", 0, False
 
-' サーバーが応答するまで最大30秒待つ
-Dim i
-For i = 1 To 30
-    WScript.Sleep 1000
-    On Error Resume Next
-    http.Open "GET", "http://127.0.0.1:5000", False
-    http.Send
-    If Err.Number = 0 Then
-        If http.Status = 200 Then
-            Exit For
-        End If
-    End If
-    On Error GoTo 0
-Next
+' サーバー起動を待つ（4秒）
+WScript.Sleep 4000
 
 ' ブラウザを開く
 WshShell.Run "http://127.0.0.1:5000", 1, False

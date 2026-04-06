@@ -32,6 +32,8 @@ Source: "{#SourceDir}\installer_assets\{#PythonInstaller}"; DestDir: "{tmp}"; Fl
 Source: "{#SourceDir}\app.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\downloader.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\mp4inchatnagasi.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\auto_update.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\version.json"; DestDir: "{app}"; Flags: ignoreversion
 
 ; binフォルダ（ffmpeg等）
 Source: "{#SourceDir}\bin\ffmpeg.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
