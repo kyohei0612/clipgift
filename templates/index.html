@@ -152,6 +152,15 @@
     </style>
   </head>
   <body>
+    <div id="version-badge" style="
+      position:fixed;
+      top:8px;
+      left:10px;
+      font-size:11px;
+      color:#aaa;
+      z-index:9998;
+      pointer-events:none;
+    ">v-.-.-</div>
     <h1>YouTube 動画＆チャットダウンロードツール</h1>
 
 
@@ -456,7 +465,7 @@
             margin:0 auto;
           "></div>
         </div>
-        <button id="update-btn" onclick="doUpdate()" style="
+        <button id="update-close-btn" onclick="location.reload()" style="
           display:none;
           background:#89b4fa;
           color:#1e1e2e;
@@ -466,7 +475,7 @@
           font-size:15px;
           font-weight:bold;
           cursor:pointer;
-        ">今すぐ更新</button>
+        ">閉じる</button>
         <button id="update-skip-btn" onclick="closeUpdateOverlay()" style="
           display:none;
           background:transparent;
@@ -476,7 +485,6 @@
           border-radius:6px;
           font-size:13px;
           cursor:pointer;
-          margin-left:10px;
         ">スキップ</button>
       </div>
     </div>
@@ -492,7 +500,7 @@
       const msg       = document.getElementById("update-msg");
       const icon      = document.getElementById("update-icon");
       const spinner   = document.getElementById("update-spinner");
-      const updateBtn = document.getElementById("update-btn");
+      const closeBtn  = document.getElementById("update-close-btn");
       const skipBtn   = document.getElementById("update-skip-btn");
 
       overlay.style.display = "flex";
@@ -500,37 +508,33 @@
       fetch("/check-update")
         .then(r => r.json())
         .then(data => {
+          // バージョンバッジ更新
+          const badge = document.getElementById("version-badge");
+          if (badge && data.local_version) {
+            badge.textContent = "v" + data.local_version;
+          }
           if (data.error || !data.has_update) {
             closeUpdateOverlay();
             return;
           }
-          icon.textContent  = "⬆️";
-          title.textContent = "アップデートがあります";
-          msg.textContent   = `v${data.local_version} → v${data.remote_version}`;
-          updateBtn.style.display = "inline-block";
-          skipBtn.style.display   = "inline-block";
+          // 更新あり → 自動で更新開始
+          icon.textContent    = "🔄";
+          title.textContent   = "更新中...";
+          msg.textContent     = "しばらくお待ちください";
+          spinner.style.display = "block";
+          fetch("/start-update", { method: "POST" })
+            .then(() => pollUpdateState())
+            .catch(() => {
+              icon.textContent      = "❌";
+              title.textContent     = "更新に失敗しました";
+              spinner.style.display = "none";
+              skipBtn.style.display = "inline-block";
+            });
         })
         .catch(() => closeUpdateOverlay());
 
       window.closeUpdateOverlay = function() {
         overlay.style.display = "none";
-      };
-
-      window.doUpdate = function() {
-        updateBtn.style.display = "none";
-        skipBtn.style.display   = "none";
-        spinner.style.display   = "block";
-        icon.textContent        = "🔄";
-        title.textContent       = "更新中...";
-        msg.textContent         = "しばらくお待ちください";
-
-        fetch("/start-update", { method: "POST" })
-          .then(() => pollUpdateState())
-          .catch(() => {
-            title.textContent     = "❌ 更新に失敗しました";
-            spinner.style.display = "none";
-            skipBtn.style.display = "inline-block";
-          });
       };
 
       function pollUpdateState() {
@@ -541,10 +545,11 @@
               msg.textContent = state.message;
               if (state.status === "done") {
                 clearInterval(timer);
-                icon.textContent      = "✅";
-                title.textContent     = "更新完了";
-                spinner.style.display = "none";
-                setTimeout(() => location.reload(), 3000);
+                icon.textContent        = "✅";
+                title.textContent       = "新しいバージョンがあるので更新しました";
+                msg.textContent         = "";
+                spinner.style.display   = "none";
+                closeBtn.style.display  = "inline-block";
               } else if (state.status === "error") {
                 clearInterval(timer);
                 icon.textContent      = "❌";
