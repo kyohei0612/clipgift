@@ -15,6 +15,7 @@ import time
 import shutil
 import hashlib
 import webbrowser
+import auto_update
 # === chatbunseki.py インライン ===
 import unicodedata
 from datetime import timedelta
@@ -920,6 +921,26 @@ def cancel_process():
         return jsonify({"success": True, "message": "処理をキャンセルしました"})
     else:
         return jsonify({"success": False, "message": "処理中のプロセスがありません"})
+
+
+@app.route("/check-update", methods=["GET"])
+def check_update_route():
+    result = auto_update.check_update()
+    return jsonify(result)
+
+
+@app.route("/start-update", methods=["POST"])
+def start_update_route():
+    state = auto_update.get_update_state()
+    if state["status"] == "updating":
+        return jsonify({"success": False, "message": "すでに更新中です"})
+    auto_update.run_update_async()
+    return jsonify({"success": True})
+
+
+@app.route("/update-state", methods=["GET"])
+def update_state_route():
+    return jsonify(auto_update.get_update_state())
 
 
 if __name__ == "__main__":

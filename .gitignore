@@ -1,0 +1,10 @@
+bin/ffmpeg.exe
+bin/ffprobe.exe
+bin/audiowaveform.exe
+bin/github_token.txt
+bin/last_font.json
+bin/python_path.txt
+installer_output/
+installer_assets/
+*.bak
+server_start_count.txt

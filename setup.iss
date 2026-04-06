@@ -42,8 +42,7 @@ Source: "{#SourceDir}\bin\audiowaveform.exe"; DestDir: "{app}\bin"; Flags: ignor
 Source: "{#SourceDir}\templates\*"; DestDir: "{app}\templates"; Flags: ignoreversion recursesubdirs
 Source: "{#SourceDir}\static\*"; DestDir: "{app}\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; 起動バッチ
-Source: "{#SourceDir}\start.bat"; DestDir: "{app}"; Flags: ignoreversion
+; 起動スクリプト
 Source: "{#SourceDir}\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

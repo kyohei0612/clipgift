@@ -422,5 +422,141 @@
         fetch("/heartbeat", { method: "POST" }).catch(() => {});
       }, 5000);
     </script>
+
+    <!-- 自動更新オーバーレイ -->
+    <div id="update-overlay" style="
+      display:none;
+      position:fixed;
+      inset:0;
+      background:rgba(0,0,0,0.65);
+      z-index:9999;
+      align-items:center;
+      justify-content:center;
+    ">
+      <div style="
+        background:#1e1e2e;
+        color:#cdd6f4;
+        border-radius:12px;
+        padding:32px 40px;
+        min-width:320px;
+        text-align:center;
+        box-shadow:0 8px 32px rgba(0,0,0,0.5);
+        font-family:'Segoe UI',sans-serif;
+      ">
+        <div id="update-icon" style="font-size:36px;margin-bottom:12px;">🔄</div>
+        <div id="update-title" style="font-size:18px;font-weight:bold;margin-bottom:8px;">アップデート確認中...</div>
+        <div id="update-msg" style="font-size:13px;color:#a6adc8;margin-bottom:20px;min-height:20px;"></div>
+        <div id="update-spinner" style="display:none;margin-bottom:16px;">
+          <div style="
+            width:36px;height:36px;
+            border:4px solid #45475a;
+            border-top-color:#89b4fa;
+            border-radius:50%;
+            animation:spin 0.8s linear infinite;
+            margin:0 auto;
+          "></div>
+        </div>
+        <button id="update-btn" onclick="doUpdate()" style="
+          display:none;
+          background:#89b4fa;
+          color:#1e1e2e;
+          border:none;
+          padding:10px 28px;
+          border-radius:6px;
+          font-size:15px;
+          font-weight:bold;
+          cursor:pointer;
+        ">今すぐ更新</button>
+        <button id="update-skip-btn" onclick="closeUpdateOverlay()" style="
+          display:none;
+          background:transparent;
+          color:#6c7086;
+          border:1px solid #45475a;
+          padding:8px 20px;
+          border-radius:6px;
+          font-size:13px;
+          cursor:pointer;
+          margin-left:10px;
+        ">スキップ</button>
+      </div>
+    </div>
+
+    <style>
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+
+    <script>
+    (function() {
+      const overlay   = document.getElementById("update-overlay");
+      const title     = document.getElementById("update-title");
+      const msg       = document.getElementById("update-msg");
+      const icon      = document.getElementById("update-icon");
+      const spinner   = document.getElementById("update-spinner");
+      const updateBtn = document.getElementById("update-btn");
+      const skipBtn   = document.getElementById("update-skip-btn");
+
+      overlay.style.display = "flex";
+
+      fetch("/check-update")
+        .then(r => r.json())
+        .then(data => {
+          if (data.error || !data.has_update) {
+            closeUpdateOverlay();
+            return;
+          }
+          icon.textContent  = "⬆️";
+          title.textContent = "アップデートがあります";
+          msg.textContent   = `v${data.local_version} → v${data.remote_version}`;
+          updateBtn.style.display = "inline-block";
+          skipBtn.style.display   = "inline-block";
+        })
+        .catch(() => closeUpdateOverlay());
+
+      window.closeUpdateOverlay = function() {
+        overlay.style.display = "none";
+      };
+
+      window.doUpdate = function() {
+        updateBtn.style.display = "none";
+        skipBtn.style.display   = "none";
+        spinner.style.display   = "block";
+        icon.textContent        = "🔄";
+        title.textContent       = "更新中...";
+        msg.textContent         = "しばらくお待ちください";
+
+        fetch("/start-update", { method: "POST" })
+          .then(() => pollUpdateState())
+          .catch(() => {
+            title.textContent     = "❌ 更新に失敗しました";
+            spinner.style.display = "none";
+            skipBtn.style.display = "inline-block";
+          });
+      };
+
+      function pollUpdateState() {
+        const timer = setInterval(() => {
+          fetch("/update-state")
+            .then(r => r.json())
+            .then(state => {
+              msg.textContent = state.message;
+              if (state.status === "done") {
+                clearInterval(timer);
+                icon.textContent      = "✅";
+                title.textContent     = "更新完了";
+                spinner.style.display = "none";
+                setTimeout(() => location.reload(), 3000);
+              } else if (state.status === "error") {
+                clearInterval(timer);
+                icon.textContent      = "❌";
+                title.textContent     = "更新に失敗しました";
+                spinner.style.display = "none";
+                skipBtn.style.display = "inline-block";
+              }
+            })
+            .catch(() => clearInterval(timer));
+        }, 800);
+      }
+    })();
+    </script>
   </body>
 </html>
