@@ -194,7 +194,7 @@ def download_chat(url, progress_path=None):
         with open(out, "a", encoding="utf-8") as f:
             for t, author, msg, offset in msgs:
                 total += 1
-                # 個別コメントはprintしない（ログが埋まるため）
+                print(f"{t},{author},{msg}", flush=True)
                 f.write(f"{t},{author},{msg}\n")
             f.flush()
             os.fsync(f.fileno())
@@ -205,14 +205,15 @@ def download_chat(url, progress_path=None):
             break
         continuation = next_c
 
-        elapsed = int(time.time() - start_time)
-        if i % 5 == 0:
-            print(f"⏳ チャット取得中: {total}件 / 動画位置 {max_seen_offset//1000}s / {elapsed}s経過", flush=True)
+        if i % 20 == 0:
+            elapsed = int(time.time() - start_time)
+            print(f"⏳ {elapsed}s経過 / {total}件取得 / 現在 {max_seen_offset//1000}s")
 
         # 進捗をファイルに書き込む
         if progress_path and duration > 0:
             offset_pct = min((max_seen_offset / 1000) / duration, 1.0)
             # 経過時間ベースの進捗（動画1秒≒0.08s処理と仮定、上限は offset_pct を超えない）
+            elapsed = time.time() - start_time
             time_pct = min(elapsed / max(duration * 0.08, 1), 1.0)
             # offset_pctが動いていればそちら優先、止まっているときは time_pct で補完
             local_pct = max(offset_pct, min(time_pct, offset_pct + 0.1))
@@ -461,7 +462,7 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
         "-y",
         output_file,
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    result = subprocess.run(cmd, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
 
     if result.returncode == 0:
         # 一時ファイル削除
@@ -472,7 +473,7 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
         print(f"[INFO] pytubefix ダウンロード完了: {output_file}", flush=True)
         return title_folder, title
     else:
-        raise Exception(f"ffmpeg結合エラー: {result.stderr}")
+        raise Exception(f"ffmpeg結合エラー: {result.stderr.decode('utf-8', errors='replace')}")
 
 
 def download_video_and_chat(url, base_output_folder, cookies_path, progress_path):
@@ -539,8 +540,8 @@ def download_video_and_chat(url, base_output_folder, cookies_path, progress_path
             "csv=p=0",
         ]
         duration_output = subprocess.check_output(
-            cmd_probe, universal_newlines=True, creationflags=subprocess.CREATE_NO_WINDOW
-        ).strip()
+            cmd_probe, creationflags=subprocess.CREATE_NO_WINDOW
+        ).decode("utf-8", errors="replace").strip()
         duration_sec = int(float(duration_output))
         print(f"[INFO] 動画長さ: {duration_sec} 秒", flush=True)
 
@@ -570,9 +571,9 @@ def download_video_and_chat(url, base_output_folder, cookies_path, progress_path
             "--bits",
             "8",
         ]
-        result = subprocess.run(cmd_json, check=True, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        result = subprocess.run(cmd_json, check=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
         if result.stderr:
-            print("[WARN] audiowaveform stderr:", result.stderr)
+            print("[WARN] audiowaveform stderr:", result.stderr.decode("utf-8", errors="replace"))
 
         if os.path.exists(wav_path):
             os.remove(wav_path)
