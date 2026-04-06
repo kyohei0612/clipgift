@@ -302,7 +302,7 @@
       const logConsoleWrap = document.getElementById("log-console-wrap");
       const logConsole = document.getElementById("log-console");
 
-      let _lastLogCount = 0;
+      let _lastLogTail = "";
 
       function setProgressBar(percent, message) {
         progressBarWrap.style.display = "block";
@@ -318,8 +318,9 @@
 
       function updateLogConsole(logs) {
         if (!logs || logs.length === 0) return;
-        if (logs.length === _lastLogCount) return; // 変化なければスキップ
-        _lastLogCount = logs.length;
+        const tail = logs[logs.length - 1];
+        if (tail === _lastLogTail) return; // 変化なければスキップ
+        _lastLogTail = tail;
         logConsoleWrap.style.display = "block";
         logConsole.textContent = logs.join("\n");
         logConsole.scrollTop = logConsole.scrollHeight; // 最下部に自動スクロール
@@ -329,7 +330,7 @@
         const progressSpan = document.getElementById("progressInfo");
         let jsonErrorCount = 0;
         let lastPhase = "";
-        _lastLogCount = 0;
+        _lastLogTail = "";
         logConsole.textContent = "";
         logConsoleWrap.style.display = "none";
 
