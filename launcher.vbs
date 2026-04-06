@@ -31,8 +31,8 @@ End If
 WshShell.Environment("Process")("LAUNCHED_BY_VBS") = "1"
 WshShell.Run """" & pythonExe & """ """ & appDir & "\app.py""", 0, False
 
-' サーバー起動を待つ（4秒）
-WScript.Sleep 4000
+' サーバー起動を待つ（10秒）
+WScript.Sleep 10000
 
 ' ブラウザを開く
 WshShell.Run "http://127.0.0.1:5000", 1, False
