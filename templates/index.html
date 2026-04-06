@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>YouTube 動画＆チャットダウンロードツール</title>
+    <style>
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #f0f2f5;
+        margin: 0;
+        padding: 20px;
+        color: #222;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 30px;
+        color: #333;
+      }
+      section {
+        background: #fff;
+        max-width: 700px;
+        margin: 0 auto 30px auto;
+        padding: 20px;
+        border-radius: 6px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+      }
+      label {
+        display: block;
+        margin-top: 15px;
+        font-weight: bold;
+        color: #444;
+      }
+      input[type="text"] {
+        width: 100%;
+        max-width: 600px;
+        padding: 8px 10px;
+        margin-top: 5px;
+        border: 1.5px solid #ccc;
+        border-radius: 5px;
+        font-size: 15px;
+        transition: border-color 0.3s;
+      }
+      input[type="text"]:focus {
+        border-color: #3498db;
+        outline: none;
+      }
+      button {
+        margin-top: 15px;
+        background-color: #3498db;
+        color: white;
+        border: none;
+        padding: 10px 18px;
+        font-size: 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s;
+      }
+      button:disabled {
+        background-color: #aaa;
+        cursor: not-allowed;
+      }
+      button:hover:not(:disabled) {
+        background-color: #217dbb;
+      }
+      .upload-box {
+        border: 2px dashed #999;
+        background: #fafafa;
+        padding: 30px;
+        border-radius: 6px;
+        cursor: pointer;
+        text-align: center;
+        user-select: none;
+        max-width: 600px;
+        margin: 15px auto 0 auto;
+      }
+      .upload-box.hidden {
+        display: none;
+      }
+      #download-result {
+        text-align: center;
+        font-weight: bold;
+        margin-top: 15px;
+      }
+      #progress-bar-wrap {
+        max-width: 600px;
+        margin: 10px auto 0;
+        display: none;
+      }
+      #progress-bar-bg {
+        background: #e0e0e0;
+        border-radius: 6px;
+        height: 10px;
+        overflow: hidden;
+      }
+      #progress-bar-fill {
+        background: #3498db;
+        height: 100%;
+        width: 0%;
+        border-radius: 6px;
+        transition: width 0.5s ease;
+      }
+      #progress-label {
+        text-align: center;
+        font-size: 13px;
+        color: #555;
+        margin-top: 5px;
+      }
+      #download-timer {
+        display: inline-block;
+        margin-left: 10px;
+        font-weight: bold;
+        color: #555;
+        min-width: 40px;
+        text-align: center;
+      }
+      .inline-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        max-width: 600px;
+        margin: 0 auto;
+      }
+      .inline-group > * {
+        flex: 1 1 auto;
+        min-width: 150px;
+      }
+      #log-console-wrap {
+        max-width: 600px;
+        margin: 12px auto 0;
+        display: none;
+      }
+      #log-console {
+        background: #1a1a2e;
+        color: #a8d8a8;
+        font-family: "Consolas", "Courier New", monospace;
+        font-size: 12px;
+        border-radius: 6px;
+        padding: 10px 12px;
+        height: 160px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.5;
+      }
+      #log-console-label {
+        font-size: 11px;
+        color: #888;
+        margin-bottom: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>YouTube 動画＆チャットダウンロードツール</h1>
+
+
+    <!-- 動画URL入力＋ダウンロード -->
+    <section>
+      <h2>🎥 ダウンロード対象の動画URLを入力</h2>
+      <label for="videoUrlInput">動画URLを入力</label>
+      <div class="inline-group">
+        <input
+          type="text"
+          id="videoUrlInput"
+          placeholder="ここにURLをコピペしてください"
+          aria-label="YouTube動画URL入力欄"
+        />
+        <button id="downloadBtn" type="button">
+          動画とチャットをダウンロード
+        </button>
+        <span id="download-timer" aria-live="polite"></span>
+      </div>
+      <p id="download-result"></p>
+      <div id="progress-bar-wrap">
+        <div id="progress-bar-bg">
+          <div id="progress-bar-fill"></div>
+        </div>
+        <div id="progress-label"></div>
+      </div>
+      <div id="log-console-wrap">
+        <div id="log-console-label">📋 処理ログ</div>
+        <div id="log-console"></div>
+      </div>
+      <div
+        class="inline-group"
+        style="justify-content: flex-end; margin-top: 10px"
+      >
+        <button onclick="location.href='/page2'">🎯 DL済みの方は次へ</button>
+      </div>
+
+      <div class="inline-group" style="justify-content: flex-end">
+        <!-- 次へボタン: 最初は押せない -->
+        <button id="nextButton" onclick="location.href='/page2'" disabled>
+          次へ進む
+        </button>
+      </div>
+    </section>
+
+    <script>
+      const videoUrlInput = document.getElementById("videoUrlInput");
+      const downloadBtn = document.getElementById("downloadBtn");
+      const downloadResult = document.getElementById("download-result");
+      const downloadTimer = document.getElementById("download-timer");
+
+      let downloadCountdown;
+
+      // ----------------------
+      // 初期ロード時のチェック
+      // ----------------------
+      // ----------------------
+      // ダウンロード処理
+      // ----------------------
+
+      downloadBtn.addEventListener("click", () => {
+        const url = videoUrlInput.value.trim();
+        if (!url) {
+          downloadResult.textContent = "❌ YouTubeのURLを入力してください";
+          downloadResult.style.color = "red";
+          return;
+        }
+
+        console.log("[ダウンロード開始] URL:", url);
+
+        downloadResult.style.color = "black";
+        downloadResult.textContent = "ダウンロード中...";
+
+        // 進捗表示用 <span>
+        const progressSpan = document.createElement("span");
+        progressSpan.id = "progressInfo";
+        progressSpan.textContent = " （しばらくお待ちください...）";
+        progressSpan.style.marginLeft = "0.5em";
+        progressSpan.style.color = "gray";
+
+        // 「ダウンロード中...」の隣に表示
+        downloadResult.appendChild(progressSpan);
+
+        // ダウンロードボタン無効化
+        downloadBtn.disabled = true;
+        startDownloadCountdown(30);
+
+        fetch("/download-yt-video-chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ videoUrl: url }),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            console.log("[サーバー応答]", data);
+
+            // 通信が返ってきたらタイマーは止める
+            if (downloadCountdown) {
+              clearInterval(downloadCountdown);
+              downloadTimer.textContent = "";
+            }
+
+            if (data.success) {
+              if (data.progress_path) {
+                startProgressPolling(data.progress_path);
+              } else {
+                // 進捗URLがない場合は固定URLを使う
+                startProgressPolling("/progress");
+              }
+            } else {
+              // エラー表示
+              downloadResult.textContent = `❌ ダウンロードに失敗しました: ${
+                data.message || "不明なエラー"
+              }`;
+              downloadResult.style.color = "red";
+              // エラー時はボタンを復帰
+              downloadBtn.disabled = false;
+            }
+          })
+          .catch((error) => {
+            console.error("[通信エラー]", error);
+
+            // 通信エラーもタイマーを止める
+            if (downloadCountdown) {
+              clearInterval(downloadCountdown);
+              downloadTimer.textContent = "";
+            }
+
+            downloadResult.textContent = "❌ サーバーと通信できませんでした";
+            downloadResult.style.color = "red";
+            // 通信エラー時もボタンを復帰
+            downloadBtn.disabled = false;
+          });
+      });
+
+      const progressBarWrap = document.getElementById("progress-bar-wrap");
+      const progressBarFill = document.getElementById("progress-bar-fill");
+      const progressLabel = document.getElementById("progress-label");
+      const logConsoleWrap = document.getElementById("log-console-wrap");
+      const logConsole = document.getElementById("log-console");
+
+      let _lastLogCount = 0;
+
+      function setProgressBar(percent, message) {
+        progressBarWrap.style.display = "block";
+        progressBarFill.style.width = percent + "%";
+        progressLabel.textContent = message;
+      }
+
+      function hideProgressBar() {
+        progressBarWrap.style.display = "none";
+        progressBarFill.style.width = "0%";
+        progressLabel.textContent = "";
+      }
+
+      function updateLogConsole(logs) {
+        if (!logs || logs.length === 0) return;
+        if (logs.length === _lastLogCount) return; // 変化なければスキップ
+        _lastLogCount = logs.length;
+        logConsoleWrap.style.display = "block";
+        logConsole.textContent = logs.join("\n");
+        logConsole.scrollTop = logConsole.scrollHeight; // 最下部に自動スクロール
+      }
+
+      function startProgressPolling(progressUrl) {
+        const progressSpan = document.getElementById("progressInfo");
+        let jsonErrorCount = 0;
+        let lastPhase = "";
+        _lastLogCount = 0;
+        logConsole.textContent = "";
+        logConsoleWrap.style.display = "none";
+
+        // ローカルパスなら /get-progress-file に変換
+        let fetchUrl = progressUrl;
+        if (!progressUrl.startsWith("/")) {
+          const encoded = encodeURIComponent(progressUrl);
+          fetchUrl = `/get-progress-file?path=${encoded}`;
+        }
+
+        const intervalId = setInterval(() => {
+          fetch(fetchUrl)
+            .then((response) => response.text())
+            .then((text) => {
+              let data;
+              try {
+                data = JSON.parse(text);
+                jsonErrorCount = 0;
+              } catch (e) {
+                jsonErrorCount++;
+                if (jsonErrorCount >= 5) {
+                  progressSpan.textContent = "❌ データ読み込みエラーが続きました";
+                  hideProgressBar();
+                  clearInterval(intervalId);
+                  downloadBtn.disabled = false;
+                }
+                return;
+              }
+
+              // ログ更新
+              if (data.logs) updateLogConsole(data.logs);
+
+              if (data.progress === -1) {
+                progressSpan.textContent = "❌ " + (data.message || "エラーが発生しました");
+                hideProgressBar();
+                clearInterval(intervalId);
+                downloadBtn.disabled = false;
+              } else if (data.progress >= 100) {
+                // ★完了判定: phaseは見ない、progress >= 100 だけで判断
+                setProgressBar(100, "✅ 完了");
+                progressSpan.textContent = "";
+                downloadResult.textContent = "✅ ダウンロード完了";
+                clearInterval(intervalId);
+                const nextButton = document.getElementById("nextButton");
+                if (nextButton) nextButton.disabled = false;
+                downloadBtn.disabled = false;
+              } else if (data.progress === 0 && data.message === "未開始") {
+                // スルー
+              } else if (data.progress >= 0) {
+                // フェーズが変わったらバーをリセット
+                const phase = data.phase || "";
+                if (phase && phase !== lastPhase) {
+                  lastPhase = phase;
+                  progressBarFill.style.transition = "none";
+                  progressBarFill.style.width = "0%";
+                  setTimeout(() => {
+                    progressBarFill.style.transition = "width 0.5s ease";
+                  }, 50);
+                }
+                const label = phase ? `【${phase}】 ${data.progress}%` : (data.message || "");
+                setProgressBar(data.progress, label);
+                progressSpan.textContent = "";
+              }
+            })
+            .catch((error) => {
+              progressSpan.textContent = "⚠️ 通信エラー";
+              hideProgressBar();
+              clearInterval(intervalId);
+              downloadBtn.disabled = false;
+            });
+        }, 1000);
+      }
+
+      function startDownloadCountdown(seconds) {
+        let remaining = seconds;
+        downloadTimer.textContent = `${remaining}s`;
+
+        // 既存タイマーを止める
+        if (downloadCountdown) {
+          clearInterval(downloadCountdown);
+        }
+
+        downloadCountdown = setInterval(() => {
+          remaining--;
+          if (remaining <= 0) {
+            clearInterval(downloadCountdown);
+            downloadTimer.textContent = "";
+            downloadBtn.disabled = false;
+          } else {
+            downloadTimer.textContent = `${remaining}s`;
+          }
+        }, 1000);
+      }
+    </script>
+  
+    <script>
+      // ハートビート: 5秒ごとにサーバーに信号を送る
+      setInterval(() => {
+        fetch("/heartbeat", { method: "POST" }).catch(() => {});
+      }, 5000);
+    </script>
+  </body>
+</html>
