@@ -435,6 +435,11 @@ _watchdog_thread = threading.Thread(target=_start_watchdog_delayed, daemon=True)
 _watchdog_thread.start()
 
 
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
+
+
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
     global _last_heartbeat
