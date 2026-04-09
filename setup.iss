@@ -35,9 +35,6 @@ Source: "{#SourceDir}\mp4inchatnagasi.py"; DestDir: "{app}"; Flags: ignoreversio
 Source: "{#SourceDir}\auto_update.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\version.json"; DestDir: "{app}"; Flags: ignoreversion
 
-; トークン（binフォルダに配置）
-Source: "{#SourceDir}\installer_assets\github_token.txt"; DestDir: "{app}\bin"; Flags: ignoreversion
-
 ; binフォルダ（ffmpeg等）
 Source: "{#SourceDir}\bin\ffmpeg.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "{#SourceDir}\bin\ffprobe.exe"; DestDir: "{app}\bin"; Flags: ignoreversion

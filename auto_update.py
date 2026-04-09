@@ -5,15 +5,11 @@ app.pyからimportして使う
 import os
 import json
 import shutil
-import sys
 import threading
-import time
 import urllib.request
 import urllib.error
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-BIN_DIR = os.path.join(BASE_DIR, "bin")
-TOKEN_FILE = os.path.join(BIN_DIR, "github_token.txt")
 LOCAL_VERSION_FILE = os.path.join(BASE_DIR, "version.json")
 
 # ここを自分のリポジトリに書き換える
@@ -26,7 +22,6 @@ EXCLUDE_FILES = {
     "bin/ffmpeg.exe",
     "bin/ffprobe.exe",
     "bin/audiowaveform.exe",
-    "bin/github_token.txt",
     "bin/python_path.txt",
     "bin/last_font.json",
     "server_start_count.txt",
@@ -39,14 +34,6 @@ _update_state = {
     "message": "",
 }
 _update_lock = threading.Lock()
-
-
-def _load_token():
-    try:
-        with open(TOKEN_FILE, "r", encoding="utf-8") as f:
-            return f.read().strip()
-    except Exception:
-        return ""
 
 
 def _github_raw_url(filepath):
@@ -63,32 +50,30 @@ def _github_api_url(filepath):
     )
 
 
-def _get_all_files(token, path=""):
+def _get_all_files(path=""):
     """GitHubリポジトリのファイル一覧を再帰取得"""
     url = _github_api_url(path)
-    data = json.loads(_fetch_url(url, token).decode("utf-8"))
+    data = json.loads(_fetch_url(url).decode("utf-8"))
     files = []
     for item in data:
         if item["type"] == "file":
             files.append(item["path"])
         elif item["type"] == "dir":
-            files.extend(_get_all_files(token, item["path"]))
+            files.extend(_get_all_files(item["path"]))
     return files
 
 
-def _fetch_url(url, token=""):
+def _fetch_url(url):
     req = urllib.request.Request(url)
-    if token:
-        req.add_header("Authorization", f"token {token}")
     req.add_header("User-Agent", "youtube-clip-tool-updater")
     with urllib.request.urlopen(req, timeout=10) as res:
         return res.read()
 
 
-def get_remote_version(token):
+def get_remote_version():
     """GitHubのversion.jsonを取得"""
     url = _github_raw_url("version.json")
-    data = _fetch_url(url, token)
+    data = _fetch_url(url)
     return json.loads(data.decode("utf-8"))
 
 
@@ -110,12 +95,8 @@ def check_update():
     更新チェック。
     戻り値: {"has_update": bool, "remote_version": str, "files": [...]}
     """
-    token = _load_token()
-    if not token:
-        return {"has_update": False, "error": "トークンが設定されていません"}
-
     try:
-        remote = get_remote_version(token)
+        remote = get_remote_version()
         local = get_local_version()
         remote_ver = remote.get("version", "0.0.0")
         local_ver = local.get("version", "0.0.0")
@@ -131,10 +112,10 @@ def check_update():
         return {"has_update": False, "error": str(e)}
 
 
-def _download_file(filepath, token):
+def _download_file(filepath):
     """GitHubからファイルをダウンロードしてローカルに上書き"""
     url = _github_raw_url(filepath)
-    data = _fetch_url(url, token)
+    data = _fetch_url(url)
 
     local_path = os.path.join(BASE_DIR, filepath.replace("/", os.sep))
     os.makedirs(os.path.dirname(local_path) if os.path.dirname(local_path) else BASE_DIR, exist_ok=True)
@@ -155,30 +136,26 @@ def run_update_async():
             _update_state["message"] = "更新ファイルを取得中..."
 
         try:
-            token = _load_token()
-
             # GitHubのファイル一覧を取得して除外リスト以外を更新
             with _update_lock:
                 _update_state["message"] = "ファイル一覧を取得中..."
-            all_files = _get_all_files(token)
+            all_files = _get_all_files()
             files = [f for f in all_files if f not in EXCLUDE_FILES]
 
             for i, filepath in enumerate(files):
                 with _update_lock:
                     _update_state["message"] = f"ダウンロード中: {filepath} ({i+1}/{len(files)})"
-                _download_file(filepath, token)
+                _download_file(filepath)
 
             # GitHubにないローカルファイルを削除
             with _update_lock:
                 _update_state["message"] = "不要ファイルを削除中..."
             github_files = set(all_files) | {"version.json"}
             for root, dirs, local_files in os.walk(BASE_DIR):
-                # .gitフォルダは除外
                 dirs[:] = [d for d in dirs if d not in {".git", "bin", "__pycache__"}]
                 for fname in local_files:
                     local_abs = os.path.join(root, fname)
                     rel = os.path.relpath(local_abs, BASE_DIR).replace(os.sep, "/")
-                    # 除外リスト・GitHubにある・.bakは無視
                     if rel in EXCLUDE_FILES or rel in github_files or rel.endswith(".bak"):
                         continue
                     try:
@@ -187,7 +164,7 @@ def run_update_async():
                         pass
 
             # version.jsonを最後に更新
-            _download_file("version.json", token)
+            _download_file("version.json")
 
             with _update_lock:
                 _update_state["status"] = "done"
