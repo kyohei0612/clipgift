@@ -441,6 +441,15 @@
           })
           .catch(() => setTimeout(startHeartbeat, 1000));
       })();
+
+      // ダウンロード中にタブを閉じようとしたら警告
+      window.addEventListener("beforeunload", function(e) {
+        if (downloadBtn && downloadBtn.disabled) {
+          e.preventDefault();
+          e.returnValue = "ダウンロードが進行中です。このページを離れると中断されます。";
+          return e.returnValue;
+        }
+      });
     </script>
 
     <!-- 自動更新オーバーレイ -->

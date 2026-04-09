@@ -402,6 +402,8 @@ def generate_temp_audio_name(filename, clip_start, clip_end):
 # ハートビート管理
 _last_heartbeat = time.time()
 _heartbeat_lock = threading.Lock()
+_is_downloading = False  # ダウンロード中フラグ
+_is_downloading_lock = threading.Lock()
 
 def _heartbeat_watchdog():
     """ハートビートが途絶えたらサーバーを終了する"""
@@ -416,6 +418,10 @@ def _heartbeat_watchdog():
                 continue
         except Exception:
             pass
+        # ダウンロード中はwatchdogを無効化
+        with _is_downloading_lock:
+            if _is_downloading:
+                continue
         if elapsed > 3:
             print("💤 ブラウザが閉じられました。サーバーを終了します。", flush=True)
             os._exit(0)
@@ -431,6 +437,12 @@ def heartbeat():
     with _heartbeat_lock:
         _last_heartbeat = time.time()
     return jsonify({"ok": True})
+
+
+@app.route("/is_downloading", methods=["GET"])
+def is_downloading_route():
+    with _is_downloading_lock:
+        return jsonify({"downloading": _is_downloading})
 
 
 @app.route("/")
@@ -614,6 +626,9 @@ def download_yt_video_chat():
                 del _dl_logs_global[: len(_dl_logs_global) - _DL_LOG_MAX]
 
     def run_download():
+        global _is_downloading
+        with _is_downloading_lock:
+            _is_downloading = True
         try:
             proc = subprocess.Popen(
                 [
@@ -662,6 +677,9 @@ def download_yt_video_chat():
                     json.dump({"progress": -1, "message": f"起動エラー: {str(e)}"}, f, ensure_ascii=False)
             except Exception:
                 pass
+        finally:
+            with _is_downloading_lock:
+                _is_downloading = False
 
     thread = threading.Thread(target=run_download, daemon=True)
     thread.start()
