@@ -427,8 +427,11 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
     )
     print(f"[INFO] 音声: {audio_stream.abr}", flush=True)
 
-    # 出力フォルダ作成
+    # 出力フォルダ作成（既存の場合は削除して再作成）
     title_folder = os.path.join(output_folder, title)
+    if os.path.exists(title_folder):
+        shutil.rmtree(title_folder)
+        print(f"[INFO] 既存フォルダを削除して再ダウンロード: {title_folder}", flush=True)
     os.makedirs(title_folder, exist_ok=True)
 
     video_file = os.path.join(title_folder, "video_temp.mp4")
