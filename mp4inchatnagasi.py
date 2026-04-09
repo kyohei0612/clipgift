@@ -249,7 +249,8 @@ def _detect_encoder():
         try:
             ret = subprocess.run(
                 [_ffmpeg_path] + args,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             if ret.returncode == 0:
                 print(f"✅ エンコーダー: {name}", flush=True)
