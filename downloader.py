@@ -443,7 +443,15 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
 
     # 音声DL用にコールバック差し替え（30〜45%）
     if progress_path:
-        yt.register_on_progress_callback(make_progress_callback(progress_path, "音声ダウンロード", 30, 15))
+        audio_cb = make_progress_callback(progress_path, "音声ダウンロード", 30, 15)
+        # pytubefixのコールバックリストをクリアして音声用に差し替え
+        for attr in ("_progress_hooks", "progress_hooks", "_on_progress_callbacks"):
+            if hasattr(yt, attr):
+                try:
+                    getattr(yt, attr).clear()
+                except Exception:
+                    pass
+        yt.register_on_progress_callback(audio_cb)
     print("[INFO] 音声ダウンロード中...", flush=True)
     audio_stream.download(output_path=title_folder, filename="audio_temp.mp4")
 
