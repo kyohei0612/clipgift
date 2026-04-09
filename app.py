@@ -426,8 +426,12 @@ def _heartbeat_watchdog():
             print("💤 ブラウザが閉じられました。サーバーを終了します。", flush=True)
             os._exit(0)
 
-# watchdogスレッドをデーモンとして起動
-_watchdog_thread = threading.Thread(target=_heartbeat_watchdog, daemon=True)
+# watchdogスレッドをデーモンとして起動（起動直後のfalse positiveを防ぐため10秒遅延）
+def _start_watchdog_delayed():
+    time.sleep(10)
+    _heartbeat_watchdog()
+
+_watchdog_thread = threading.Thread(target=_start_watchdog_delayed, daemon=True)
 _watchdog_thread.start()
 
 
