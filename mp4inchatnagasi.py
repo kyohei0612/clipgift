@@ -238,6 +238,30 @@ import imageio_ffmpeg
 _ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
 
 
+def _detect_encoder():
+    """使用可能なハードウェアエンコーダーを検出して返す"""
+    candidates = [
+        ("h264_nvenc",  ["-f", "lavfi", "-i", "nullsrc", "-t", "0.1", "-c:v", "h264_nvenc", "-f", "null", "-"]),
+        ("h264_amf",    ["-f", "lavfi", "-i", "nullsrc", "-t", "0.1", "-c:v", "h264_amf",   "-f", "null", "-"]),
+        ("h264_qsv",    ["-f", "lavfi", "-i", "nullsrc", "-t", "0.1", "-c:v", "h264_qsv",   "-f", "null", "-"]),
+    ]
+    for name, args in candidates:
+        try:
+            ret = subprocess.run(
+                [_ffmpeg_path] + args,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
+            if ret.returncode == 0:
+                print(f"✅ エンコーダー: {name}", flush=True)
+                return name
+        except Exception:
+            pass
+    print("⚠️ ハードウェアエンコーダーなし → libx264 (CPU) を使用", flush=True)
+    return "libx264"
+
+_VIDEO_ENCODER = _detect_encoder()
+
+
 def get_video_info(video_path):
     """ffprobeで動画のfps/width/heightを取得"""
     ffprobe_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "bin", "ffprobe.exe")
@@ -461,10 +485,13 @@ def gen_clip(
             # コメントなし: そのままコピー
             cmd += ["-map", "0:v", "-map", "0:a"]
 
-        cmd += [
-            "-c:v", "h264_nvenc",
-            "-preset", "p4",      # nvenc用プリセット(p1=最速～p7=最高品質)
-            "-cq", "18",           # nvenc用品質指定(crfに相当)
+        if _VIDEO_ENCODER in ("h264_nvenc", "h264_amf"):
+            enc_opts = ["-c:v", _VIDEO_ENCODER, "-preset", "p4", "-cq", "18"]
+        elif _VIDEO_ENCODER == "h264_qsv":
+            enc_opts = ["-c:v", _VIDEO_ENCODER, "-preset", "medium", "-global_quality", "18"]
+        else:
+            enc_opts = ["-c:v", "libx264", "-preset", "medium", "-crf", "18"]
+        cmd += enc_opts + [
             "-c:a", "aac",
             out_path,
         ]
