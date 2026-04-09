@@ -618,6 +618,11 @@
         }, 800);
       }
     })();
+
+    // ページロード時に進捗をリセット
+    document.addEventListener("DOMContentLoaded", () => {
+      fetch("/reset-progress", { method: "POST" }).catch(() => {});
+    });
     </script>
   </body>
 </html>

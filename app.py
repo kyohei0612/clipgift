@@ -700,6 +700,17 @@ def download_yt_video_chat():
     })
 
 
+@app.route("/reset-progress", methods=["POST"])
+def reset_progress():
+    dl_progress_path = os.path.join(BASE_DIR, "dl_progress.json")
+    try:
+        with open(dl_progress_path, "w", encoding="utf-8") as f:
+            json.dump({"progress": 0, "message": ""}, f, ensure_ascii=False)
+    except Exception:
+        pass
+    return jsonify({"ok": True})
+
+
 @app.route("/progress", methods=["GET"])
 def get_progress():
     progress_path = request.args.get("path")
