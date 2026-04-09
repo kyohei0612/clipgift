@@ -6,6 +6,7 @@ import os
 import json
 import shutil
 import threading
+import time
 import urllib.request
 import urllib.error
 
@@ -64,15 +65,19 @@ def _get_all_files(path=""):
 
 
 def _fetch_url(url):
+    sep = "&" if "?" in url else "?"
+    url = f"{url}{sep}t={int(time.time())}"
     req = urllib.request.Request(url)
     req.add_header("User-Agent", "youtube-clip-tool-updater")
+    req.add_header("Cache-Control", "no-cache")
+    req.add_header("Pragma", "no-cache")
     with urllib.request.urlopen(req, timeout=10) as res:
         return res.read()
 
 
 def get_remote_version():
-    """GitHubのversion.jsonを取得"""
-    url = _github_raw_url("version.json")
+    """GitHubのversion.jsonを取得（キャッシュ無効化）"""
+    url = _github_raw_url("version.json") + f"?t={int(time.time())}"
     data = _fetch_url(url)
     return json.loads(data.decode("utf-8"))
 
