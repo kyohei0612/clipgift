@@ -433,11 +433,26 @@
     <script>
       // サーバーが応答してからハートビート開始
       (function startHeartbeat() {
+        let _heartbeatInterval = null;
+        let _failCount = 0;
+        const MAX_FAIL = 5;
+
+        function sendHeartbeat() {
+          fetch("/heartbeat", { method: "POST" })
+            .then(() => { _failCount = 0; })
+            .catch((err) => {
+              _failCount++;
+              console.warn(`ハートビート失敗 (${_failCount}/${MAX_FAIL}):`, err);
+              if (_failCount >= MAX_FAIL) {
+                clearInterval(_heartbeatInterval);
+                console.error("ハートビートが連続失敗したため停止しました");
+              }
+            });
+        }
+
         fetch("/heartbeat", { method: "POST" })
           .then(() => {
-            setInterval(() => {
-              fetch("/heartbeat", { method: "POST" }).catch(() => {});
-            }, 1000);
+            _heartbeatInterval = setInterval(sendHeartbeat, 1000);
           })
           .catch(() => setTimeout(startHeartbeat, 1000));
       })();

@@ -1227,8 +1227,18 @@ function startDownload() {
   }
 }
 
+let _pollProgressInterval = null;
+
+function stopPollProgress() {
+  if (_pollProgressInterval !== null) {
+    clearInterval(_pollProgressInterval);
+    _pollProgressInterval = null;
+  }
+}
+
 function pollProgress(progressPath) {
-  const interval = setInterval(() => {
+  stopPollProgress(); // 多重起動防止
+  _pollProgressInterval = setInterval(() => {
     fetch(
       `/get-progress-file?path=${encodeURIComponent(
         progressPath,
@@ -1244,7 +1254,7 @@ function pollProgress(progressPath) {
 
         // 🔹全体完了の場合
         if (data.all_done) {
-          clearInterval(interval);
+          stopPollProgress();
           console.log("✅ 全クリップ処理が完了しました");
           onDownloadComplete();
           return;
@@ -1258,14 +1268,14 @@ function pollProgress(progressPath) {
 
         // 🔹キャンセルやエラー
         if (data.progress === -1) {
-          clearInterval(interval);
+          stopPollProgress();
           console.error("❌ エラーまたはキャンセル:", data.message);
           onDownloadComplete();
         }
       })
       .catch((err) => {
         console.error("❌ 進捗取得エラー:", err);
-        clearInterval(interval);
+        stopPollProgress();
         onDownloadComplete();
       });
   }, 1000);

@@ -2,7 +2,6 @@ import sys
 import os
 import re
 import subprocess
-import logging
 import tempfile
 import shutil
 import json
@@ -10,7 +9,6 @@ import unicodedata
 import time
 import requests
 import csv as csv_module
-from yt_dlp import YoutubeDL
 import imageio_ffmpeg
 
 # === youtubeChatdl.py インライン ===
@@ -144,16 +142,19 @@ def _extract_next_cont(json_data):
     return walk(json_data)
 
 
-def download_chat(url, progress_path=None):
-    """YouTubeチャットログをchatlog.csvとして保存する"""
+def download_chat(url, progress_path=None, out_path=None):
+    """YouTubeチャットログをcsvとして保存する"""
     print(f"▶ Fetching chat: {url}")
 
-    with YoutubeDL() as ydl:
-        info = ydl.extract_info(url, download=False)
-        duration = info.get("duration", 0)
+    html = _fetch_html(url)
+
+    # duration取得（ytInitialPlayerResponseから）
+    duration = 0
+    dur_m = re.search(r'"lengthSeconds"\s*:\s*"(\d+)"', html)
+    if dur_m:
+        duration = int(dur_m.group(1))
     print(f"📏 動画の長さ: {duration} 秒")
 
-    html = _fetch_html(url)
     api_key, version, yid = _extract_params(html)
     if not yid:
         print("❌ ytInitialData が見つかりません。")
@@ -163,7 +164,7 @@ def download_chat(url, progress_path=None):
         print("❌ continuation が見つかりません。")
         return
 
-    out = "chatlog.csv"
+    out = out_path if out_path else "chatlog.csv"
     open(out, "w", encoding="utf-8").close()
     total = 0
     max_seen_offset = 0
@@ -487,7 +488,7 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
         raise Exception(f"ffmpeg結合エラー: {result.stderr.decode('utf-8', errors='replace')}")
 
 
-def download_video_and_chat(url, base_output_folder, cookies_path, progress_path):
+def download_video_and_chat(url, base_output_folder, progress_path):
     output_folder = os.path.abspath(base_output_folder)
     os.makedirs(output_folder, exist_ok=True)
 
@@ -502,13 +503,11 @@ def download_video_and_chat(url, base_output_folder, cookies_path, progress_path
         progress_path, {"progress": 45, "message": "チャットダウンロード中", "phase": "チャットダウンロード"}
     )
 
-    # youtubeChatdl.pyでCSV取得
+    # チャットをtitle_folderに直接保存
     try:
-        download_chat(url, progress_path=progress_path)
-        src_csv = os.path.join(os.getcwd(), "chatlog.csv")
         dst_csv = os.path.join(title_folder, "comments_cleaned.csv")
-        if os.path.exists(src_csv):
-            shutil.move(src_csv, dst_csv)
+        download_chat(url, progress_path=progress_path, out_path=dst_csv)
+        if os.path.exists(dst_csv):
             print(f"[INFO] チャットログを保存: {dst_csv}", flush=True)
         else:
             print("[WARN] chatlog.csv が見つかりません。", flush=True)
@@ -612,16 +611,13 @@ def main():
     base_output_folder = sys.argv[2]
     progress_path = sys.argv[3]
 
-    cookies_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "cookies", "cookies.txt"
-    )
     os.makedirs(base_output_folder, exist_ok=True)
 
     safe_write_json(progress_path, {"progress": 0, "message": "開始"})
 
     try:
         download_video_and_chat(
-            video_url, base_output_folder, cookies_path, progress_path
+            video_url, base_output_folder, progress_path
         )
     except Exception as e:
         safe_write_json(progress_path, {"progress": -1, "message": f"エラー: {e}"})

@@ -122,6 +122,17 @@ def _download_file(filepath):
     url = _github_raw_url(filepath)
     data = _fetch_url(url)
 
+    # 空ファイルは異常とみなしてスキップ
+    if not data:
+        raise ValueError(f"ダウンロードしたファイルが空です: {filepath}")
+
+    # .pyファイルの場合、Pythonとして構文チェック
+    if filepath.endswith(".py"):
+        try:
+            compile(data.decode("utf-8", errors="replace"), filepath, "exec")
+        except SyntaxError as e:
+            raise ValueError(f"ダウンロードしたファイルの構文エラー: {filepath}: {e}")
+
     local_path = os.path.join(BASE_DIR, filepath.replace("/", os.sep))
     os.makedirs(os.path.dirname(local_path) if os.path.dirname(local_path) else BASE_DIR, exist_ok=True)
 

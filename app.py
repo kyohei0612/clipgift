@@ -6,7 +6,6 @@ import re
 from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
 import traceback
 import threading
-import platform
 import json
 import io
 import csv
@@ -156,7 +155,6 @@ def analyze_chat(lines, keywords, start_threshold, end_threshold, clip_offset, v
 import imageio_ffmpeg
 
 from pathlib import Path
-from werkzeug.utils import secure_filename
 
 # BASE_DIRを先頭で定義
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -422,6 +420,10 @@ def _heartbeat_watchdog():
         with _is_downloading_lock:
             if _is_downloading:
                 continue
+        # クリップ処理中はwatchdogを無効化
+        if not processing_lock.acquire(blocking=False):
+            continue
+        processing_lock.release()
         if elapsed > 3:
             print("💤 ブラウザが閉じられました。サーバーを終了します。", flush=True)
             os._exit(0)
@@ -748,6 +750,7 @@ def get_progress_file():
 processing_lock = threading.Lock()
 current_process = None
 cancel_flag = False
+_cancel_flag_lock = threading.Lock()
 current_clip_index = 0
 _process_logs = []
 _process_logs_lock = threading.Lock()
@@ -814,7 +817,8 @@ def process_clips():
         print("💡 clipsの数:", len(clips))
         print("💡 clipsの中身:", json.dumps(clips, ensure_ascii=False))
 
-        cancel_flag = False
+        with _cancel_flag_lock:
+            cancel_flag = False
         current_clip_index = 0
 
         with open(progress_file, "w", encoding="utf-8") as f:
@@ -839,15 +843,17 @@ def process_clips():
                 json.dump(data, f, ensure_ascii=False)
 
         def run_process():
-            global current_process, cancel_flag, current_clip_index
+            global current_process, current_clip_index
             with _process_logs_lock:
                 _process_logs.clear()
             try:
                 for idx, clip in enumerate(clips, 1):
                     _append_log(f"▶ クリップ {idx}/{len(clips)} 開始")
-                    print(f"▶ ループ開始 idx={idx}, cancel_flag={cancel_flag}")
+                    with _cancel_flag_lock:
+                        is_cancelled = cancel_flag
+                    print(f"▶ ループ開始 idx={idx}, cancel_flag={is_cancelled}")
 
-                    if cancel_flag:
+                    if is_cancelled:
                         _write_progress({"progress": -1, "message": "キャンセルされました", "current_clip": idx})
                         print("🛑 キャンセル検知、処理中断")
                         break
@@ -893,7 +899,9 @@ def process_clips():
 
                     output_lines = []
                     for line in iter(current_process.stdout.readline, ""):
-                        if cancel_flag:
+                        with _cancel_flag_lock:
+                            is_cancelled = cancel_flag
+                        if is_cancelled:
                             current_process.terminate()
                             _write_progress({"progress": -1, "message": "キャンセルにより終了", "current_clip": idx})
                             print("🛑 subprocessを強制終了")
@@ -908,7 +916,9 @@ def process_clips():
                     retcode = current_process.wait()
                     print(f"✅ wait()終了 retcode={retcode}")
 
-                    if retcode != 0 and not cancel_flag:
+                    with _cancel_flag_lock:
+                        is_cancelled = cancel_flag
+                    if retcode != 0 and not is_cancelled:
                         error_output = "\n".join(output_lines)
                         print("❌ サブプロセスがエラー終了しました:")
                         print(error_output)
@@ -916,10 +926,12 @@ def process_clips():
                             retcode, current_process.args, output=error_output
                         )
 
-                    if not cancel_flag:
+                    if not is_cancelled:
                         print(f"✅ {clip_title}: 処理完了")
 
-                if not cancel_flag:
+                with _cancel_flag_lock:
+                    is_cancelled = cancel_flag
+                if not is_cancelled:
                     _append_log("✅ 全クリップ処理完了")
                     print("✅ 全クリップ処理完了")
                     _write_progress({"progress": 100, "message": "全クリップ処理完了", "current_clip": len(clips), "all_done": True})
@@ -959,9 +971,11 @@ def process_clips():
 
 @app.route("/cancel_process", methods=["POST"])
 def cancel_process():
-    global cancel_flag, current_process
+    global current_process
     if current_process and current_process.poll() is None:
-        cancel_flag = True
+        with _cancel_flag_lock:
+            global cancel_flag
+            cancel_flag = True
         current_process.terminate()
         return jsonify({"success": True, "message": "処理をキャンセルしました"})
     else:
