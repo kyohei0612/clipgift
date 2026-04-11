@@ -424,7 +424,7 @@ def _heartbeat_watchdog():
         if not processing_lock.acquire(blocking=False):
             continue
         processing_lock.release()
-        if elapsed > 10:
+        if elapsed > 30:
             print("💤 ブラウザが閉じられました。サーバーを終了します。", flush=True)
             os._exit(0)
 
