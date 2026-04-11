@@ -424,7 +424,7 @@ def _heartbeat_watchdog():
         if not processing_lock.acquire(blocking=False):
             continue
         processing_lock.release()
-        if elapsed > 3:
+        if elapsed > 10:
             print("💤 ブラウザが閉じられました。サーバーを終了します。", flush=True)
             os._exit(0)
 
@@ -718,8 +718,15 @@ def get_progress():
     progress_path = request.args.get("path")
     if not progress_path or not os.path.exists(progress_path):
         return jsonify({"progress": 0, "message": "未開始"})
+    abs_path = os.path.abspath(progress_path)
+    temp_dir = os.path.abspath(tempfile.gettempdir())
+    base_dir = os.path.abspath(BASE_DIR)
+    if not (abs_path.startswith(temp_dir) or abs_path.startswith(base_dir)):
+        return jsonify({"progress": -1, "message": "不正なパスです"}), 400
+    if not abs_path.endswith(".json"):
+        return jsonify({"progress": -1, "message": "不正なファイル形式です"}), 400
     try:
-        with open(progress_path, "r", encoding="utf-8") as f:
+        with open(abs_path, "r", encoding="utf-8") as f:
             data = json.load(f)
         return jsonify(data)
     except Exception as e:
@@ -731,6 +738,13 @@ def get_progress_file():
     progress_path = request.args.get("path")
     if not progress_path or not os.path.exists(progress_path):
         return jsonify({"progress": 0, "message": "未開始"})
+    abs_path = os.path.abspath(progress_path)
+    temp_dir = os.path.abspath(tempfile.gettempdir())
+    base_dir = os.path.abspath(BASE_DIR)
+    if not (abs_path.startswith(temp_dir) or abs_path.startswith(base_dir)):
+        return jsonify({"progress": -1, "message": "不正なパスです"}), 400
+    if not abs_path.endswith(".json"):
+        return jsonify({"progress": -1, "message": "不正なファイル形式です"}), 400
     # atomic renameと競合しないようリトライ最大3回
     last_err = None
     for _ in range(3):

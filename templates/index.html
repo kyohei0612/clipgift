@@ -2,639 +2,751 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/static/ClipGiftLog.png">
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>YouTube 動画＆チャットダウンロードツール</title>
+    <title>ClipGift — YouTube Downloader</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        --bg:       #0a0a0f;
+        --surface:  #111118;
+        --border:   #1e1e2a;
+        --accent:   #f5a623;
+        --accent2:  #e8522a;
+        --text:     #e8e8f0;
+        --muted:    #5a5a6e;
+        --success:  #22c55e;
+        --error:    #ef4444;
+        --mono:     'Space Mono', monospace;
+        --sans:     'Syne', sans-serif;
+      }
+
+      html { scroll-behavior: smooth; }
+
       body {
-        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-        background: #f0f2f5;
-        margin: 0;
-        padding: 20px;
-        color: #222;
+        font-family: var(--sans);
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        overflow-x: hidden;
       }
-      h1 {
-        text-align: center;
-        margin-bottom: 30px;
-        color: #333;
+
+      /* ── グリッドノイズ背景 ── */
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(245,166,35,.03) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(245,166,35,.03) 1px, transparent 1px);
+        background-size: 40px 40px;
+        pointer-events: none;
+        z-index: 0;
       }
-      section {
-        background: #fff;
-        max-width: 700px;
-        margin: 0 auto 30px auto;
-        padding: 20px;
-        border-radius: 6px;
-        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+
+      /* ── グローオーブ ── */
+      .orb {
+        position: fixed;
+        border-radius: 50%;
+        filter: blur(120px);
+        pointer-events: none;
+        z-index: 0;
+        animation: orbFloat 8s ease-in-out infinite alternate;
       }
-      label {
-        display: block;
-        margin-top: 15px;
-        font-weight: bold;
-        color: #444;
+      .orb-1 { width: 500px; height: 500px; background: rgba(245,166,35,.07); top: -150px; right: -100px; }
+      .orb-2 { width: 400px; height: 400px; background: rgba(232,82,42,.05); bottom: -100px; left: -100px; animation-delay: -4s; }
+
+      @keyframes orbFloat {
+        from { transform: translate(0, 0) scale(1); }
+        to   { transform: translate(20px, 30px) scale(1.05); }
       }
-      input[type="text"] {
-        width: 100%;
-        max-width: 600px;
-        padding: 8px 10px;
-        margin-top: 5px;
-        border: 1.5px solid #ccc;
-        border-radius: 5px;
-        font-size: 15px;
-        transition: border-color 0.3s;
+
+      /* ── レイアウト ── */
+      .shell {
+        position: relative;
+        z-index: 1;
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 0 24px 80px;
       }
-      input[type="text"]:focus {
-        border-color: #3498db;
-        outline: none;
-      }
-      button {
-        margin-top: 15px;
-        background-color: #3498db;
-        color: white;
-        border: none;
-        padding: 10px 18px;
-        font-size: 15px;
-        border-radius: 5px;
-        cursor: pointer;
-        transition: background-color 0.3s;
-      }
-      button:disabled {
-        background-color: #aaa;
-        cursor: not-allowed;
-      }
-      button:hover:not(:disabled) {
-        background-color: #217dbb;
-      }
-      .upload-box {
-        border: 2px dashed #999;
-        background: #fafafa;
-        padding: 30px;
-        border-radius: 6px;
-        cursor: pointer;
-        text-align: center;
-        user-select: none;
-        max-width: 600px;
-        margin: 15px auto 0 auto;
-      }
-      .upload-box.hidden {
-        display: none;
-      }
-      #download-result {
-        text-align: center;
-        font-weight: bold;
-        margin-top: 15px;
-      }
-      #progress-bar-wrap {
-        max-width: 600px;
-        margin: 10px auto 0;
-        display: none;
-      }
-      #progress-bar-bg {
-        background: #e0e0e0;
-        border-radius: 6px;
-        height: 10px;
-        overflow: hidden;
-      }
-      #progress-bar-fill {
-        background: #3498db;
-        height: 100%;
-        width: 0%;
-        border-radius: 6px;
-        transition: width 0.5s ease;
-      }
-      #progress-label {
-        text-align: center;
-        font-size: 13px;
-        color: #555;
-        margin-top: 5px;
-      }
-      #download-timer {
-        display: inline-block;
-        margin-left: 10px;
-        font-weight: bold;
-        color: #555;
-        min-width: 40px;
-        text-align: center;
-      }
-      .inline-group {
+
+      /* ── トップバー ── */
+      .topbar {
         display: flex;
         align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-        max-width: 600px;
-        margin: 0 auto;
+        justify-content: space-between;
+        padding: 20px 0 0;
       }
-      .inline-group > * {
-        flex: 1 1 auto;
-        min-width: 150px;
+
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 4px;
       }
-      #log-console-wrap {
-        max-width: 600px;
-        margin: 12px auto 0;
+
+      .logo-text {
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: -0.5px;
+        color: var(--text);
+      }
+      .logo-text span { color: var(--accent); }
+
+      .topbar-right {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      #version-badge {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--muted);
+        letter-spacing: 1px;
+      }
+
+      .btn-ghost {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--muted);
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 4px 10px;
+        cursor: pointer;
+        transition: all .2s;
+        letter-spacing: .5px;
+      }
+      .btn-ghost:hover { color: var(--accent); border-color: var(--accent); }
+
+      /* ── ヒーロー ── */
+      .hero {
+        padding: 60px 0 48px;
+        animation: fadeUp .8s ease both;
+      }
+
+      .hero-label {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--accent);
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .hero-label::before {
+        content: '';
+        display: block;
+        width: 24px;
+        height: 1px;
+        background: var(--accent);
+      }
+
+      .hero h1 {
+        font-size: clamp(32px, 6vw, 52px);
+        font-weight: 800;
+        line-height: 1.05;
+        letter-spacing: -2px;
+        margin-bottom: 16px;
+      }
+
+      .hero h1 em {
+        font-style: normal;
+        color: transparent;
+        -webkit-text-stroke: 1px var(--accent);
+      }
+
+      .hero-sub {
+        font-size: 14px;
+        color: var(--muted);
+        line-height: 1.7;
+        max-width: 440px;
+      }
+
+      /* ── カード ── */
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        padding: 28px 28px 24px;
+        margin-bottom: 16px;
+        animation: fadeUp .8s ease both;
+        transition: border-color .3s;
+      }
+      .card:hover { border-color: rgba(245,166,35,.2); }
+
+      .card-label {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--muted);
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-bottom: 18px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .card-label::before {
+        content: '';
+        display: block;
+        width: 4px;
+        height: 4px;
+        background: var(--accent);
+        border-radius: 50%;
+      }
+
+      /* ── URL入力 ── */
+      .input-wrap {
+        display: flex;
+        gap: 4px;
+        align-items: stretch;
+      }
+
+      .url-input {
+        flex: 1;
+        background: rgba(255,255,255,.04);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: 12px;
+        padding: 14px 16px;
+        outline: none;
+        transition: all .2s;
+        letter-spacing: .5px;
+      }
+      .url-input::placeholder { color: var(--muted); }
+      .url-input:focus {
+        border-color: var(--accent);
+        background: rgba(245,166,35,.04);
+        box-shadow: 0 0 0 3px rgba(245,166,35,.08);
+      }
+
+      .btn-primary {
+        background: var(--accent);
+        color: #0a0a0f;
+        border: none;
+        border-radius: 10px;
+        font-family: var(--sans);
+        font-size: 13px;
+        font-weight: 600;
+        padding: 0 24px;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: all .2s;
+        position: relative;
+        overflow: hidden;
+      }
+      .btn-primary::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(255,255,255,.2), transparent);
+        opacity: 0;
+        transition: opacity .2s;
+      }
+      .btn-primary:hover::after { opacity: 1; }
+      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(245,166,35,.3); }
+      .btn-primary:active { transform: translateY(0); }
+      .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
+
+      .btn-secondary {
+        background: transparent;
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        font-family: var(--sans);
+        font-size: 13px;
+        font-weight: 600;
+        padding: 12px 20px;
+        cursor: pointer;
+        transition: all .2s;
+        white-space: nowrap;
+      }
+      .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+      .btn-secondary:disabled { opacity: .3; cursor: not-allowed; }
+
+      /* ── 進捗 ── */
+      .progress-wrap {
+        margin-top: 20px;
         display: none;
       }
-      #log-console {
-        background: #1a1a2e;
-        color: #a8d8a8;
-        font-family: "Consolas", "Courier New", monospace;
+
+      .progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+
+      .progress-phase {
+        font-family: var(--mono);
+        font-size: 10px;
+        color: var(--accent);
+        letter-spacing: 1px;
+        text-transform: uppercase;
+      }
+
+      .progress-pct {
+        font-family: var(--mono);
         font-size: 12px;
-        border-radius: 6px;
-        padding: 10px 12px;
-        height: 160px;
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      .progress-track {
+        height: 3px;
+        background: var(--border);
+        border-radius: 99px;
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--accent), var(--accent2));
+        border-radius: 99px;
+        width: 0%;
+        transition: width .5s cubic-bezier(.4,0,.2,1);
+        position: relative;
+      }
+      .progress-fill::after {
+        content: '';
+        position: absolute;
+        right: 0;
+        top: -4px;
+        width: 11px;
+        height: 11px;
+        background: var(--accent);
+        border-radius: 50%;
+        box-shadow: 0 0 8px var(--accent);
+      }
+
+      .progress-msg {
+        font-family: var(--mono);
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 8px;
+        min-height: 16px;
+      }
+
+      /* ── ステータス ── */
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-family: var(--mono);
+        font-size: 11px;
+        padding: 4px 10px;
+        border-radius: 99px;
+        margin-top: 12px;
+      }
+      .status-pill.success { background: rgba(34,197,94,.1); color: var(--success); border: 1px solid rgba(34,197,94,.2); }
+      .status-pill.error   { background: rgba(239,68,68,.1);  color: var(--error);   border: 1px solid rgba(239,68,68,.2); }
+      .status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+      /* ── ログ ── */
+      .log-wrap { margin-top: 16px; display: none; }
+      .log-label {
+        font-family: var(--mono);
+        font-size: 9px;
+        color: var(--muted);
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        margin-bottom: 8px;
+      }
+      .log-console {
+        background: #060608;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 14px;
+        height: 120px;
         overflow-y: auto;
+        font-family: var(--mono);
+        font-size: 10px;
+        color: #6ee7b7;
+        line-height: 1.8;
         white-space: pre-wrap;
         word-break: break-all;
-        line-height: 1.5;
       }
-      #log-console-label {
-        font-size: 11px;
-        color: #888;
-        margin-bottom: 4px;
+      .log-console::-webkit-scrollbar { width: 4px; }
+      .log-console::-webkit-scrollbar-track { background: transparent; }
+      .log-console::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+      /* ── アクションエリア ── */
+      .action-row {
+        display: flex;
+        gap: 4px;
+        margin-top: 16px;
+        justify-content: flex-end;
       }
+
+      /* ── タイマー ── */
+      #download-timer {
+        font-family: var(--mono);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      /* ── アニメーション ── */
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      .card:nth-child(2) { animation-delay: .1s; }
+      .card:nth-child(3) { animation-delay: .2s; }
+
+      /* ── 更新オーバーレイ ── */
+      #update-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,.8);
+        backdrop-filter: blur(8px);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .update-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 40px;
+        min-width: 340px;
+        text-align: center;
+      }
+
+      .update-icon { font-size: 40px; margin-bottom: 16px; }
+      .update-title { font-size: 20px; font-weight: 800; margin-bottom: 8px; }
+      .update-msg { font-size: 12px; color: var(--muted); font-family: var(--mono); min-height: 20px; margin-bottom: 24px; }
+
+      .update-spinner {
+        width: 36px; height: 36px;
+        border: 3px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin .8s linear infinite;
+        margin: 0 auto 24px;
+        display: none;
+      }
+
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      #update-close-btn, #update-skip-btn {
+        display: none;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 10px 24px;
+        transition: all .2s;
+      }
+      #update-close-btn { background: var(--accent); color: #0a0a0f; border: none; }
+      #update-close-btn:hover { box-shadow: 0 4px 16px rgba(245,166,35,.4); }
+      #update-skip-btn { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-left: 8px; }
+      #update-skip-btn:hover { border-color: var(--muted); }
     </style>
   </head>
   <body>
-    <div style="position:fixed;top:8px;left:10px;z-index:9998;display:flex;align-items:center;gap:8px;">
-      <div id="version-badge" style="font-size:11px;color:#aaa;pointer-events:none;">v-.-.-</div>
-      <button onclick="manualCheckUpdate()" style="
-        font-size:11px;
-        color:#aaa;
-        background:transparent;
-        border:1px solid #555;
-        border-radius:4px;
-        padding:2px 8px;
-        cursor:pointer;
-        line-height:1.4;
-      ">更新確認</button>
-    </div>
-    <h1>YouTube 動画＆チャットダウンロードツール</h1>
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
 
-
-    <!-- 動画URL入力＋ダウンロード -->
-    <section>
-      <h2>🎥 ダウンロード対象の動画URLを入力</h2>
-      <label for="videoUrlInput">動画URLを入力</label>
-      <div class="inline-group">
-        <input
-          type="text"
-          id="videoUrlInput"
-          placeholder="ここにURLをコピペしてください"
-          aria-label="YouTube動画URL入力欄"
-        />
-        <button id="downloadBtn" type="button">
-          動画とチャットをダウンロード
-        </button>
-        <span id="download-timer" aria-live="polite"></span>
-      </div>
-      <p id="download-result"></p>
-      <div id="progress-bar-wrap">
-        <div id="progress-bar-bg">
-          <div id="progress-bar-fill"></div>
+    <div class="shell">
+      <!-- トップバー -->
+      <div class="topbar">
+        <div class="logo">
+          <img src="/static/ClipGiftLog.png" alt="ClipGift" style="height:36px;width:36px;object-fit:contain;">
+          <div class="logo-text">Clip<span>Gift</span></div>
         </div>
-        <div id="progress-label"></div>
-      </div>
-      <div id="log-console-wrap">
-        <div id="log-console-label">📋 処理ログ</div>
-        <div id="log-console"></div>
-      </div>
-      <div
-        class="inline-group"
-        style="justify-content: flex-end; margin-top: 10px"
-      >
-        <button onclick="location.href='/page2'">🎯 DL済みの方は次へ</button>
+        <div class="topbar-right">
+          <div id="version-badge">v-.-.-</div>
+          <button class="btn-ghost" onclick="manualCheckUpdate()">UPDATE CHECK</button>
+        </div>
       </div>
 
-      <div class="inline-group" style="justify-content: flex-end">
-        <!-- 次へボタン: 最初は押せない -->
-        <button id="nextButton" onclick="location.href='/page2'" disabled>
-          次へ進む
-        </button>
+      <!-- ヒーロー -->
+      <div class="hero">
+        <div class="hero-label">YouTube Clip Tool</div>
+        <h1>Download.<br><em>Analyze.</em><br>Create.</h1>
+        <p class="hero-sub">YouTube動画とチャットをダウンロードして、盛り上がりシーンを自動抽出します。</p>
       </div>
-    </section>
+
+      <!-- メインカード -->
+      <div class="card">
+        <div class="card-label">Step 01 — URL入力</div>
+        <div class="input-wrap">
+          <input
+            type="text"
+            id="videoUrlInput"
+            class="url-input"
+            placeholder="https://www.youtube.com/watch?v=..."
+            aria-label="YouTube動画URL入力欄"
+          />
+          <button id="downloadBtn" class="btn-primary" type="button">
+            DOWNLOAD
+          </button>
+          <span id="download-timer"></span>
+        </div>
+
+        <p id="download-result"></p>
+
+        <div class="progress-wrap" id="progress-bar-wrap">
+          <div class="progress-header">
+            <span class="progress-phase" id="progress-phase-label">Processing</span>
+            <span class="progress-pct" id="progress-pct-label">0%</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-fill" id="progress-bar-fill"></div>
+          </div>
+          <div class="progress-msg" id="progress-label"></div>
+        </div>
+
+        <div class="log-wrap" id="log-console-wrap">
+          <div class="log-label">Terminal Output</div>
+          <div class="log-console" id="log-console"></div>
+        </div>
+
+        <div class="action-row">
+          <button onclick="location.href='/page2'" class="btn-secondary">DL済みの方はこちら →</button>
+          <button id="nextButton" onclick="location.href='/page2'" class="btn-primary" disabled>
+            次へ進む →
+          </button>
+        </div>
+      </div>
+    </div>
 
     <script>
       const videoUrlInput = document.getElementById("videoUrlInput");
       const downloadBtn = document.getElementById("downloadBtn");
       const downloadResult = document.getElementById("download-result");
       const downloadTimer = document.getElementById("download-timer");
-
       let downloadCountdown;
-
-      // ----------------------
-      // 初期ロード時のチェック
-      // ----------------------
-      // ----------------------
-      // ダウンロード処理
-      // ----------------------
 
       downloadBtn.addEventListener("click", () => {
         const url = videoUrlInput.value.trim();
         if (!url) {
-          downloadResult.textContent = "❌ YouTubeのURLを入力してください";
-          downloadResult.style.color = "red";
+          showStatus("error", "YouTubeのURLを入力してください");
           return;
         }
-
-        console.log("[ダウンロード開始] URL:", url);
-
-        downloadResult.style.color = "black";
-        downloadResult.textContent = "ダウンロード中...";
-
-        // 進捗表示用 <span>
-        const progressSpan = document.createElement("span");
-        progressSpan.id = "progressInfo";
-        progressSpan.textContent = " （しばらくお待ちください...）";
-        progressSpan.style.marginLeft = "0.5em";
-        progressSpan.style.color = "gray";
-
-        // 「ダウンロード中...」の隣に表示
-        downloadResult.appendChild(progressSpan);
-
-        // ダウンロードボタン無効化
+        showStatus("", "");
         downloadBtn.disabled = true;
         startDownloadCountdown(30);
-
         fetch("/download-yt-video-chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ videoUrl: url }),
         })
-          .then((res) => res.json())
-          .then((data) => {
-            console.log("[サーバー応答]", data);
-
-            // 通信が返ってきたらタイマーは止める
-            if (downloadCountdown) {
-              clearInterval(downloadCountdown);
-              downloadTimer.textContent = "";
-            }
-
+          .then(res => res.json())
+          .then(data => {
+            if (downloadCountdown) { clearInterval(downloadCountdown); downloadTimer.textContent = ""; }
             if (data.success) {
-              if (data.progress_path) {
-                startProgressPolling(data.progress_path);
-              } else {
-                // 進捗URLがない場合は固定URLを使う
-                startProgressPolling("/progress");
-              }
+              startProgressPolling(data.progress_path || "/progress");
             } else {
-              // エラー表示
-              downloadResult.textContent = `❌ ダウンロードに失敗しました: ${
-                data.message || "不明なエラー"
-              }`;
-              downloadResult.style.color = "red";
-              // エラー時はボタンを復帰
+              showStatus("error", data.message || "ダウンロードに失敗しました");
               downloadBtn.disabled = false;
             }
           })
-          .catch((error) => {
-            console.error("[通信エラー]", error);
-
-            // 通信エラーもタイマーを止める
-            if (downloadCountdown) {
-              clearInterval(downloadCountdown);
-              downloadTimer.textContent = "";
-            }
-
-            downloadResult.textContent = "❌ サーバーと通信できませんでした";
-            downloadResult.style.color = "red";
-            // 通信エラー時もボタンを復帰
+          .catch(() => {
+            if (downloadCountdown) { clearInterval(downloadCountdown); downloadTimer.textContent = ""; }
+            showStatus("error", "サーバーと通信できませんでした");
             downloadBtn.disabled = false;
           });
       });
 
+      function showStatus(type, msg) {
+        const el = document.getElementById("download-result");
+        el.innerHTML = "";
+        if (!msg) return;
+        const pill = document.createElement("div");
+        pill.className = "status-pill " + type;
+        pill.textContent = msg;
+        el.appendChild(pill);
+      }
+
       const progressBarWrap = document.getElementById("progress-bar-wrap");
       const progressBarFill = document.getElementById("progress-bar-fill");
-      const progressLabel = document.getElementById("progress-label");
-      const logConsoleWrap = document.getElementById("log-console-wrap");
-      const logConsole = document.getElementById("log-console");
-
+      const progressLabel   = document.getElementById("progress-label");
+      const logConsoleWrap  = document.getElementById("log-console-wrap");
+      const logConsole      = document.getElementById("log-console");
       let _lastLogTail = "";
 
-      function setProgressBar(percent, message) {
+      function setProgressBar(percent, message, phase) {
         progressBarWrap.style.display = "block";
         progressBarFill.style.width = percent + "%";
         progressLabel.textContent = message;
+        document.getElementById("progress-pct-label").textContent = percent + "%";
+        if (phase) document.getElementById("progress-phase-label").textContent = phase;
       }
 
       function hideProgressBar() {
         progressBarWrap.style.display = "none";
         progressBarFill.style.width = "0%";
-        progressLabel.textContent = "";
       }
 
       function updateLogConsole(logs) {
         if (!logs || logs.length === 0) return;
         const tail = logs[logs.length - 1];
-        if (tail === _lastLogTail) return; // 変化なければスキップ
+        if (tail === _lastLogTail) return;
         _lastLogTail = tail;
         logConsoleWrap.style.display = "block";
         logConsole.textContent = logs.join("\n");
-        logConsole.scrollTop = logConsole.scrollHeight; // 最下部に自動スクロール
+        logConsole.scrollTop = logConsole.scrollHeight;
       }
 
       function startProgressPolling(progressUrl) {
-        const progressSpan = document.getElementById("progressInfo");
-        let jsonErrorCount = 0;
-        let lastPhase = "";
+        let jsonErrorCount = 0, lastPhase = "";
         _lastLogTail = "";
         logConsole.textContent = "";
         logConsoleWrap.style.display = "none";
-
-        // ローカルパスなら /get-progress-file に変換
         let fetchUrl = progressUrl;
         if (!progressUrl.startsWith("/")) {
-          const encoded = encodeURIComponent(progressUrl);
-          fetchUrl = `/get-progress-file?path=${encoded}`;
+          fetchUrl = `/get-progress-file?path=${encodeURIComponent(progressUrl)}`;
         }
-
         const intervalId = setInterval(() => {
           fetch(fetchUrl)
-            .then((response) => response.text())
-            .then((text) => {
+            .then(r => r.text())
+            .then(text => {
               let data;
-              try {
-                data = JSON.parse(text);
-                jsonErrorCount = 0;
-              } catch (e) {
-                jsonErrorCount++;
-                if (jsonErrorCount >= 5) {
-                  progressSpan.textContent = "❌ データ読み込みエラーが続きました";
-                  hideProgressBar();
-                  clearInterval(intervalId);
-                  downloadBtn.disabled = false;
-                }
+              try { data = JSON.parse(text); jsonErrorCount = 0; }
+              catch(e) {
+                if (++jsonErrorCount >= 5) { hideProgressBar(); clearInterval(intervalId); downloadBtn.disabled = false; }
                 return;
               }
-
-              // ログ更新
               if (data.logs) updateLogConsole(data.logs);
-
               if (data.progress === -1) {
-                progressSpan.textContent = "❌ " + (data.message || "エラーが発生しました");
-                hideProgressBar();
-                clearInterval(intervalId);
-                downloadBtn.disabled = false;
+                showStatus("error", data.message || "エラーが発生しました");
+                hideProgressBar(); clearInterval(intervalId); downloadBtn.disabled = false;
               } else if (data.progress >= 100) {
-                // ★完了判定: phaseは見ない、progress >= 100 だけで判断
-                setProgressBar(100, "✅ 完了");
-                progressSpan.textContent = "";
-                downloadResult.textContent = "✅ ダウンロード完了";
+                setProgressBar(100, "完了", "DONE");
+                showStatus("success", "ダウンロード完了");
                 clearInterval(intervalId);
-                const nextButton = document.getElementById("nextButton");
-                if (nextButton) nextButton.disabled = false;
+                document.getElementById("nextButton").disabled = false;
                 downloadBtn.disabled = false;
-              } else if (data.progress === 0 && data.message === "未開始") {
-                // スルー
               } else if (data.progress >= 0) {
-                // フェーズが変わったらバーをリセット
                 const phase = data.phase || "";
                 if (phase && phase !== lastPhase) {
                   lastPhase = phase;
                   progressBarFill.style.transition = "none";
                   progressBarFill.style.width = "0%";
-                  setTimeout(() => {
-                    progressBarFill.style.transition = "width 0.5s ease";
-                  }, 50);
+                  setTimeout(() => { progressBarFill.style.transition = "width .5s cubic-bezier(.4,0,.2,1)"; }, 50);
                 }
-                const label = phase ? `【${phase}】 ${data.progress}%` : (data.message || "");
-                setProgressBar(data.progress, label);
-                progressSpan.textContent = "";
+                setProgressBar(data.progress, data.message || "", phase);
               }
             })
-            .catch((error) => {
-              progressSpan.textContent = "⚠️ 通信エラー";
-              hideProgressBar();
-              clearInterval(intervalId);
-              downloadBtn.disabled = false;
-            });
+            .catch(() => { hideProgressBar(); clearInterval(intervalId); downloadBtn.disabled = false; });
         }, 1000);
       }
 
       function startDownloadCountdown(seconds) {
         let remaining = seconds;
-        downloadTimer.textContent = `${remaining}s`;
-
-        // 既存タイマーを止める
-        if (downloadCountdown) {
-          clearInterval(downloadCountdown);
-        }
-
+        downloadTimer.textContent = remaining + "s";
+        if (downloadCountdown) clearInterval(downloadCountdown);
         downloadCountdown = setInterval(() => {
           remaining--;
-          if (remaining <= 0) {
-            clearInterval(downloadCountdown);
-            downloadTimer.textContent = "";
-            downloadBtn.disabled = false;
-          } else {
-            downloadTimer.textContent = `${remaining}s`;
-          }
+          if (remaining <= 0) { clearInterval(downloadCountdown); downloadTimer.textContent = ""; downloadBtn.disabled = false; }
+          else downloadTimer.textContent = remaining + "s";
         }, 1000);
       }
     </script>
-  
-    <script>
-      // サーバーが応答してからハートビート開始
-      (function startHeartbeat() {
-        let _heartbeatInterval = null;
-        let _failCount = 0;
-        const MAX_FAIL = 5;
 
-        function sendHeartbeat() {
+    <script>
+      (function startHeartbeat() {
+        let _hbInterval = null, _failCount = 0;
+        function sendHb() {
           fetch("/heartbeat", { method: "POST" })
             .then(() => { _failCount = 0; })
-            .catch((err) => {
-              _failCount++;
-              console.warn(`ハートビート失敗 (${_failCount}/${MAX_FAIL}):`, err);
-              if (_failCount >= MAX_FAIL) {
-                clearInterval(_heartbeatInterval);
-                console.error("ハートビートが連続失敗したため停止しました");
-              }
-            });
+            .catch(err => { _failCount++; console.warn("HB fail", _failCount, err); });
         }
-
         fetch("/heartbeat", { method: "POST" })
-          .then(() => {
-            _heartbeatInterval = setInterval(sendHeartbeat, 1000);
-          })
+          .then(() => { _hbInterval = setInterval(sendHb, 2000); })
           .catch(() => setTimeout(startHeartbeat, 1000));
       })();
 
-      // ダウンロード中にタブを閉じようとしたら警告
-      window.addEventListener("beforeunload", function(e) {
+      window.addEventListener("beforeunload", e => {
         if (downloadBtn && downloadBtn.disabled) {
-          e.preventDefault();
-          e.returnValue = "ダウンロードが進行中です。このページを離れると中断されます。";
-          return e.returnValue;
+          e.preventDefault(); e.returnValue = "ダウンロードが進行中です。";
         }
       });
     </script>
 
-    <!-- 自動更新オーバーレイ -->
-    <div id="update-overlay" style="
-      display:none;
-      position:fixed;
-      inset:0;
-      background:rgba(0,0,0,0.65);
-      z-index:9999;
-      align-items:center;
-      justify-content:center;
-    ">
-      <div style="
-        background:#1e1e2e;
-        color:#cdd6f4;
-        border-radius:12px;
-        padding:32px 40px;
-        min-width:320px;
-        text-align:center;
-        box-shadow:0 8px 32px rgba(0,0,0,0.5);
-        font-family:'Segoe UI',sans-serif;
-      ">
-        <div id="update-icon" style="font-size:36px;margin-bottom:12px;">🔄</div>
-        <div id="update-title" style="font-size:18px;font-weight:bold;margin-bottom:8px;">アップデート確認中...</div>
-        <div id="update-msg" style="font-size:13px;color:#a6adc8;margin-bottom:20px;min-height:20px;"></div>
-        <div id="update-spinner" style="display:none;margin-bottom:16px;">
-          <div style="
-            width:36px;height:36px;
-            border:4px solid #45475a;
-            border-top-color:#89b4fa;
-            border-radius:50%;
-            animation:spin 0.8s linear infinite;
-            margin:0 auto;
-          "></div>
-        </div>
-        <button id="update-close-btn" onclick="closeUpdateOverlay()" style="
-          display:none;
-          background:#89b4fa;
-          color:#1e1e2e;
-          border:none;
-          padding:10px 28px;
-          border-radius:6px;
-          font-size:15px;
-          font-weight:bold;
-          cursor:pointer;
-        ">閉じる</button>
-        <button id="update-skip-btn" onclick="closeUpdateOverlay()" style="
-          display:none;
-          background:transparent;
-          color:#6c7086;
-          border:1px solid #45475a;
-          padding:8px 20px;
-          border-radius:6px;
-          font-size:13px;
-          cursor:pointer;
-        ">スキップ</button>
+    <!-- 更新オーバーレイ -->
+    <div id="update-overlay">
+      <div class="update-card">
+        <div class="update-icon" id="update-icon">◈</div>
+        <div class="update-title" id="update-title">確認中...</div>
+        <div class="update-msg" id="update-msg"></div>
+        <div class="update-spinner" id="update-spinner"></div>
+        <button id="update-close-btn" onclick="closeUpdateOverlay()">閉じる</button>
+        <button id="update-skip-btn" onclick="closeUpdateOverlay()">スキップ</button>
       </div>
     </div>
 
-    <style>
-      @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
-
     <script>
     (function() {
-      const overlay   = document.getElementById("update-overlay");
-      const title     = document.getElementById("update-title");
-      const msg       = document.getElementById("update-msg");
-      const icon      = document.getElementById("update-icon");
-      const spinner   = document.getElementById("update-spinner");
-      const closeBtn  = document.getElementById("update-close-btn");
-      const skipBtn   = document.getElementById("update-skip-btn");
+      const overlay  = document.getElementById("update-overlay");
+      const title    = document.getElementById("update-title");
+      const msg      = document.getElementById("update-msg");
+      const icon     = document.getElementById("update-icon");
+      const spinner  = document.getElementById("update-spinner");
+      const closeBtn = document.getElementById("update-close-btn");
+      const skipBtn  = document.getElementById("update-skip-btn");
 
       overlay.style.display = "flex";
 
-      fetch("/check-update")
-        .then(r => r.json())
-        .then(data => {
-          // バージョンバッジ更新
-          const badge = document.getElementById("version-badge");
-          if (badge && data.local_version) {
-            badge.textContent = "v" + data.local_version;
-          }
-          if (data.error || !data.has_update) {
-            closeUpdateOverlay();
-            return;
-          }
-          // 更新あり → 自動で更新開始
-          icon.textContent    = "🔄";
-          title.textContent   = "更新中...";
-          msg.textContent     = "しばらくお待ちください";
-          spinner.style.display = "block";
-          fetch("/start-update", { method: "POST" })
-            .then(() => pollUpdateState())
-            .catch(() => {
-              icon.textContent      = "❌";
-              title.textContent     = "更新に失敗しました";
-              spinner.style.display = "none";
-              skipBtn.style.display = "inline-block";
-            });
-        })
-        .catch(() => closeUpdateOverlay());
+      fetch("/check-update").then(r => r.json()).then(data => {
+        const badge = document.getElementById("version-badge");
+        if (badge && data.local_version) badge.textContent = "v" + data.local_version;
+        if (data.error || !data.has_update) { closeUpdateOverlay(); return; }
+        icon.textContent = "↻"; title.textContent = "アップデート中...";
+        msg.textContent = "しばらくお待ちください"; spinner.style.display = "block";
+        fetch("/start-update", { method: "POST" })
+          .then(() => pollUpdateState())
+          .catch(() => { icon.textContent = "✕"; title.textContent = "更新に失敗しました"; spinner.style.display = "none"; skipBtn.style.display = "inline-block"; });
+      }).catch(() => closeUpdateOverlay());
 
       window.manualCheckUpdate = function() {
-        overlay.style.display  = "flex";
-        icon.textContent       = "🔄";
-        title.textContent      = "更新確認中...";
-        msg.textContent        = "";
-        spinner.style.display  = "none";
-        closeBtn.style.display = "none";
-        skipBtn.style.display  = "none";
-        fetch("/check-update")
-          .then(r => r.json())
-          .then(data => {
-            const badge = document.getElementById("version-badge");
-            if (badge && data.local_version) badge.textContent = "v" + data.local_version;
-            if (data.error || !data.has_update) {
-              icon.textContent       = "✅";
-              title.textContent      = "最新バージョンです";
-              msg.textContent        = data.local_version ? "v" + data.local_version : "";
-              closeBtn.style.display = "inline-block";
-              return;
-            }
-            icon.textContent      = "🔄";
-            title.textContent     = "更新中...";
-            msg.textContent       = "しばらくお待ちください";
-            spinner.style.display = "block";
-            fetch("/start-update", { method: "POST" })
-              .then(() => pollUpdateState())
-              .catch(() => {
-                icon.textContent      = "❌";
-                title.textContent     = "更新に失敗しました";
-                spinner.style.display = "none";
-                skipBtn.style.display = "inline-block";
-              });
-          })
-          .catch(() => closeUpdateOverlay());
+        overlay.style.display = "flex";
+        icon.textContent = "◈"; title.textContent = "確認中..."; msg.textContent = "";
+        spinner.style.display = "none"; closeBtn.style.display = "none"; skipBtn.style.display = "none";
+        fetch("/check-update").then(r => r.json()).then(data => {
+          const badge = document.getElementById("version-badge");
+          if (badge && data.local_version) badge.textContent = "v" + data.local_version;
+          if (data.error || !data.has_update) {
+            icon.textContent = "✓"; title.textContent = "最新バージョンです";
+            msg.textContent = data.local_version ? "v" + data.local_version : "";
+            closeBtn.style.display = "inline-block"; return;
+          }
+          icon.textContent = "↻"; title.textContent = "アップデート中...";
+          msg.textContent = "しばらくお待ちください"; spinner.style.display = "block";
+          fetch("/start-update", { method: "POST" }).then(() => pollUpdateState())
+            .catch(() => { icon.textContent = "✕"; title.textContent = "更新に失敗しました"; spinner.style.display = "none"; skipBtn.style.display = "inline-block"; });
+        }).catch(() => closeUpdateOverlay());
       };
 
-      window.closeUpdateOverlay = function() {
-        overlay.style.display = "none";
-      };
+      window.closeUpdateOverlay = function() { overlay.style.display = "none"; };
 
       function pollUpdateState() {
         const timer = setInterval(() => {
-          fetch("/update-state")
-            .then(r => r.json())
-            .then(state => {
-              msg.textContent = state.message;
-              if (state.status === "done") {
-                clearInterval(timer);
-                icon.textContent        = "✅";
-                title.textContent       = "更新しました";
-                msg.textContent         = "次回起動時に反映されます";
-                spinner.style.display   = "none";
-                closeBtn.style.display  = "inline-block";
-              } else if (state.status === "error") {
-                clearInterval(timer);
-                icon.textContent      = "❌";
-                title.textContent     = "更新に失敗しました";
-                spinner.style.display = "none";
-                skipBtn.style.display = "inline-block";
-              }
-            })
-            .catch(() => clearInterval(timer));
+          fetch("/update-state").then(r => r.json()).then(state => {
+            msg.textContent = state.message;
+            if (state.status === "done") {
+              clearInterval(timer); icon.textContent = "✓"; title.textContent = "更新しました";
+              msg.textContent = "次回起動時に反映されます"; spinner.style.display = "none"; closeBtn.style.display = "inline-block";
+            } else if (state.status === "error") {
+              clearInterval(timer); icon.textContent = "✕"; title.textContent = "更新に失敗しました";
+              spinner.style.display = "none"; skipBtn.style.display = "inline-block";
+            }
+          }).catch(() => clearInterval(timer));
         }, 800);
       }
     })();
 
-    // ページロード時に進捗をリセット
     document.addEventListener("DOMContentLoaded", () => {
       fetch("/reset-progress", { method: "POST" }).catch(() => {});
     });
