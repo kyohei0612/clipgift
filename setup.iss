@@ -17,6 +17,7 @@ OutputBaseFilename=YouTubeClipTool_Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile={#SourceDir}\installer_assets\ClipGiftLog.ico
 PrivilegesRequired=lowest
 CloseApplications=force
 RestartApplications=no
@@ -44,13 +45,16 @@ Source: "{#SourceDir}\bin\audiowaveform.exe"; DestDir: "{app}\bin"; Flags: ignor
 Source: "{#SourceDir}\templates\*"; DestDir: "{app}\templates"; Flags: ignoreversion recursesubdirs
 Source: "{#SourceDir}\static\*"; DestDir: "{app}\static"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+; アイコン
+Source: "{#SourceDir}\installer_assets\ClipGiftLog.ico"; DestDir: "{app}"; Flags: ignoreversion
+
 ; 起動スクリプト
 Source: "{#SourceDir}\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""
+Name: "{group}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\ClipGiftLog.ico"
 Name: "{group}\アンインストール"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\ClipGiftLog.ico"
 
 [Run]
 ; Python 3.10をサイレントインストール（すでに入っていてもOK）
