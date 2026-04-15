@@ -1,5 +1,5 @@
 #define MyAppName "YouTube クリップツール"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.0.40"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
@@ -35,6 +35,20 @@ Source: "{#SourceDir}\downloader.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\mp4inchatnagasi.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\auto_update.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\version.json"; DestDir: "{app}"; Flags: ignoreversion
+
+; 分離済みPythonモジュール (P1 リファクタで新設)
+Source: "{#SourceDir}\chat_analyzer.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\font_manager.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\system_utils.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\paths.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\config.py"; DestDir: "{app}"; Flags: ignoreversion
+
+; ドキュメント
+Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\CLAUDE.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\ISSUES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\requirements.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\pyproject.toml"; DestDir: "{app}"; Flags: ignoreversion
 
 ; binフォルダ（ffmpeg等）
 Source: "{#SourceDir}\bin\ffmpeg.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
