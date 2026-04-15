@@ -11,9 +11,10 @@
 ## 動作環境
 
 - Windows 10 / 11
-- Python 3.10+ 推奨（3.7 以上必須）
+- **Python 3.10 以上**（`pyproject.toml` の `requires-python` で明示）
 - ffmpeg / ffprobe（`bin/` に同梱想定、または `imageio-ffmpeg` から取得）
 - audiowaveform.exe（波形生成用、`bin/` に同梱想定）
+- NVIDIA GPU 推奨（クリップ生成時に NVENC でハードウェアエンコード）
 
 ---
 

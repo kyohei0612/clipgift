@@ -21,13 +21,13 @@ from chat_analyzer import analyze_chat
 from font_manager import list_fonts, load_last_font, save_last_font
 from system_utils import (
     get_python_exe,
+    get_ffmpeg_path,
     cleanup_temp_files_and_dirs,
     check_and_increment_start_count,
 )
 import config
 
 
-import imageio_ffmpeg
 from pathlib import Path
 
 
@@ -295,7 +295,7 @@ def extract_audio():
         os.close(fd)
         video_file.save(temp_video_path)
 
-        ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        ffmpeg_path = get_ffmpeg_path()
         duration = clip_end - clip_start
 
         cmd = [

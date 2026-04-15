@@ -17,6 +17,49 @@ from paths import BIN_DIR, START_COUNT_FILE, PYTHON_PATH_FILE
 logger = logging.getLogger(__name__)
 
 
+# --- ffmpeg / ffprobe の参照経路を一本化する ---
+# 優先順位:
+#   1. インストーラーが配置した bin/*.exe
+#   2. (ffmpeg のみ) pip の imageio_ffmpeg バンドル
+#   3. PATH 上のコマンド
+#
+# setup.iss 経由でインストールした環境では bin/ の exe が存在するのでそちらが使われる。
+# 開発環境で pip で入れただけの場合は imageio_ffmpeg / PATH にフォールバックする。
+
+
+def get_ffmpeg_path():
+    """ffmpeg 実行ファイルパスを返す。"""
+    bin_path = os.path.join(BIN_DIR, "ffmpeg.exe")
+    if os.path.exists(bin_path):
+        return bin_path
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    which = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
+    if which:
+        return which
+    raise RuntimeError(
+        "ffmpeg が見つかりません。bin/ffmpeg.exe を配置するか、"
+        "`pip install imageio-ffmpeg` を実行してください。"
+    )
+
+
+def get_ffprobe_path():
+    """ffprobe 実行ファイルパスを返す。imageio_ffmpeg は ffprobe を含まない点に注意。"""
+    bin_path = os.path.join(BIN_DIR, "ffprobe.exe")
+    if os.path.exists(bin_path):
+        return bin_path
+    which = shutil.which("ffprobe") or shutil.which("ffprobe.exe")
+    if which:
+        return which
+    raise RuntimeError(
+        "ffprobe が見つかりません。bin/ffprobe.exe を配置するか、"
+        "ffprobe を PATH に追加してください。"
+    )
+
+
 def get_python_exe():
     """コンソールなしの pythonw.exe を優先して返す。"""
 

@@ -1,5 +1,4 @@
-# Python 3.10+ 推奨
-# ソースコード上の `sys.stdout.reconfigure` 呼び出しのため Python 3.7 以上が必須
+# Python 3.10 以上必須（pyproject.toml requires-python = ">=3.10"）
 
 Flask>=3.0,<4.0
 requests>=2.31,<3.0

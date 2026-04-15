@@ -9,18 +9,68 @@ import unicodedata
 import time
 import requests
 import csv as csv_module
-import imageio_ffmpeg
+
+from system_utils import get_ffmpeg_path, get_ffprobe_path
 
 # === youtubeChatdl.py インライン ===
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
 
+# --- ネットワーク設定（ハードコード撤廃 + 指数バックオフ） ---
+HTML_FETCH_TIMEOUT_SEC = 20
+HTML_FETCH_RETRIES = 3
+
+CHAT_FETCH_TIMEOUT_SEC = 60
+CHAT_FETCH_RETRIES = 5
+CHAT_FETCH_BACKOFF_BASE_SEC = 1.0
+CHAT_FETCH_BACKOFF_CAP_SEC = 30.0
+
+# 各チャットバッチ取得後のスロットリング（YouTube 側への過剰アクセス防止）
+CHAT_BATCH_SLEEP_SEC = 0.08
+
+# 再試行しても意味がない（恒久的な）HTTP ステータス
+_NON_RETRYABLE_STATUS = {400, 401, 403, 404, 410}
+
+
+def _compute_backoff(attempt, retry_after=None,
+                     base=CHAT_FETCH_BACKOFF_BASE_SEC,
+                     cap=CHAT_FETCH_BACKOFF_CAP_SEC):
+    """
+    指数バックオフの待機秒数を計算する。
+    - attempt: 0 始まり（1 回目の再試行は attempt=0）
+    - retry_after: サーバーが返した Retry-After 値（秒）。あれば優先
+    - 上限は cap 秒
+    """
+    if retry_after is not None:
+        try:
+            return min(cap, max(0.0, float(retry_after)))
+        except (TypeError, ValueError):
+            pass
+    return min(cap, base * (2 ** attempt))
+
 
 def _fetch_html(url):
+    """HTML を取得する。503/タイムアウト等で指数バックオフ再試行する。"""
     headers = {"User-Agent": USER_AGENT}
-    r = requests.get(url, headers=headers, timeout=20)
-    r.raise_for_status()
-    return r.text
+    last_err = None
+    for attempt in range(HTML_FETCH_RETRIES):
+        try:
+            r = requests.get(url, headers=headers, timeout=HTML_FETCH_TIMEOUT_SEC)
+            if r.status_code in _NON_RETRYABLE_STATUS:
+                r.raise_for_status()  # 即例外（再試行しない）
+            r.raise_for_status()
+            return r.text
+        except requests.exceptions.HTTPError as e:
+            if e.response is not None and e.response.status_code in _NON_RETRYABLE_STATUS:
+                raise
+            last_err = e
+        except requests.exceptions.RequestException as e:
+            last_err = e
+        if attempt < HTML_FETCH_RETRIES - 1:
+            delay = _compute_backoff(attempt)
+            print(f"⚠️ HTML 取得失敗（{type(last_err).__name__}）{delay:.1f}s 待って再試行 {attempt+1}/{HTML_FETCH_RETRIES}", flush=True)
+            time.sleep(delay)
+    raise RuntimeError(f"HTML 取得に失敗（{HTML_FETCH_RETRIES} 回試行）: {last_err}")
 
 
 def _extract_params(html):
@@ -56,22 +106,44 @@ def _find_continuation(ytInitialData):
     return continuations[0] if continuations else None
 
 
-def _fetch_chat(api_key, version, continuation, retries=3):
+def _fetch_chat(api_key, version, continuation, retries=CHAT_FETCH_RETRIES):
+    """
+    チャット取得リクエスト。指数バックオフ（1, 2, 4, 8, 16... 秒、上限 30s）で再試行する。
+    429 の場合は Retry-After ヘッダを優先して尊重する。
+    """
     url = f"https://www.youtube.com/youtubei/v1/live_chat/get_live_chat_replay?key={api_key}"
     data = {
         "context": {"client": {"clientName": "WEB", "clientVersion": version}},
         "continuation": continuation,
     }
     headers = {"User-Agent": USER_AGENT, "Content-Type": "application/json"}
+    last_err = None
     for attempt in range(retries):
         try:
-            r = requests.post(url, headers=headers, json=data, timeout=60)
+            r = requests.post(url, headers=headers, json=data, timeout=CHAT_FETCH_TIMEOUT_SEC)
+            # 恒久的な 4xx は即失敗（再試行しても無駄）
+            if r.status_code in _NON_RETRYABLE_STATUS:
+                r.raise_for_status()
+            # 429 は Retry-After を尊重して待つ（後段で処理するため HTTPError として扱う）
             r.raise_for_status()
             return r.json()
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status in _NON_RETRYABLE_STATUS:
+                raise
+            retry_after = e.response.headers.get("Retry-After") if e.response is not None else None
+            last_err = e
+            if attempt < retries - 1:
+                delay = _compute_backoff(attempt, retry_after=retry_after)
+                print(f"⚠️ HTTP {status} — {delay:.1f}s 待って再試行 {attempt+1}/{retries}", flush=True)
+                time.sleep(delay)
         except requests.exceptions.RequestException as e:
-            print(f"⚠️ {type(e).__name__}: {e} — 再試行 {attempt+1}/{retries}")
-            time.sleep(3)
-    raise RuntimeError("❌ 再試行しても取得できませんでした。")
+            last_err = e
+            if attempt < retries - 1:
+                delay = _compute_backoff(attempt)
+                print(f"⚠️ {type(e).__name__} — {delay:.1f}s 待って再試行 {attempt+1}/{retries}", flush=True)
+                time.sleep(delay)
+    raise RuntimeError(f"❌ チャット取得に失敗（{retries} 回試行）: {last_err}")
 
 
 def _ms_to_timestamp(ms):
@@ -225,7 +297,7 @@ def download_chat(url, progress_path=None, out_path=None):
                 "phase": "チャットダウンロード"
             })
 
-        time.sleep(0.08)
+        time.sleep(CHAT_BATCH_SLEEP_SEC)
 
     print(f"✅ 完了: {total} 件のコメントを {out} に保存しました。")
 
@@ -274,10 +346,10 @@ def download_chat(url, progress_path=None, out_path=None):
 # === youtubeChatdl.py インライン終わり ===
 from pytubefix import YouTube
 
-# ffmpeg のパス
-ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+# ffmpeg / ffprobe のパス（system_utils で一本化）
+ffmpeg_path = get_ffmpeg_path()
 _BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-ffprobe_path = os.path.join(_BASE_DIR, "bin", "ffprobe.exe")
+ffprobe_path = get_ffprobe_path()
 audiowaveform_path = os.path.join(_BASE_DIR, "bin", "audiowaveform.exe")
 
 # 標準出力をUTF-8に

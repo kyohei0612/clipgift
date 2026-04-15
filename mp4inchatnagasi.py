@@ -25,6 +25,16 @@ from flask import Flask, request, jsonify, url_for
 print(f"🎯 実行中ファイル: {__file__}", flush=True)
 
 
+# --- 定数（マジックナンバー撤廃） ---
+DEFAULT_FONTSIZE = 50                   # コメント画像のデフォルトフォントサイズ
+COMMENT_DISPLAY_DURATION_SEC = 7.0      # 各コメントを画面に表示し続ける秒数
+VIDEO_EDGE_PADDING_PX = 50              # コメント配置時に画面端から確保する余白
+PROGRESS_LOG_EVERY = 50                 # 何件ごとに進捗を更新/ログするか
+CLIP_END_CUT_MARGIN_SEC = 2             # クリップ末尾から何秒分のコメントを捨てるか（リピート防止）
+CLIP_RETRY_COUNT = 3                    # クリップ単位の失敗再試行回数
+CLIP_RETRY_DELAY_SEC = 3                # 再試行前のウェイト秒数
+
+
 # === 進捗ファイル書き込み用 ===
 def safe_write_progress(progress_path, progress, message, current_clip=0):
     """進捗ファイルを安全に書き込む"""
@@ -75,7 +85,7 @@ def find_font(filename):
     return None
 
 
-def can_render_text(text, font_path, fontsize=50):
+def can_render_text(text, font_path, fontsize=DEFAULT_FONTSIZE):
     """フォントがテキストを正しく描画できるか確認する。
     文字化け（豆腐文字 □ や .notdef）が多い場合はFalseを返す"""
     if not font_path:
@@ -103,7 +113,7 @@ def can_render_text(text, font_path, fontsize=50):
         return True
 
 
-def create_text_image(text, font_path=None, fontsize=50):
+def create_text_image(text, font_path=None, fontsize=DEFAULT_FONTSIZE):
     if font_path is None:
         found = find_font("keifont.ttf")
         if found:
@@ -219,8 +229,8 @@ class CommentTrack:
         self.y_line_end_times = {}
 
     def find_y(self, new_start, dur, h, w, margin=40):
-        min_y = 50
-        max_y = self.video_h - h - 50
+        min_y = VIDEO_EDGE_PADDING_PX
+        max_y = self.video_h - h - VIDEO_EDGE_PADDING_PX
 
         candidates = list(range(min_y, max_y + 1, 70))
         np.random.shuffle(candidates)
@@ -233,9 +243,9 @@ class CommentTrack:
         return None
 
 
-# === ffmpegパス ===
-import imageio_ffmpeg
-_ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+# === ffmpegパス（system_utils で一本化） ===
+from system_utils import get_ffmpeg_path, get_ffprobe_path
+_ffmpeg_path = get_ffmpeg_path()
 
 
 def _detect_encoder():
@@ -265,7 +275,7 @@ _VIDEO_ENCODER = _detect_encoder()
 
 def get_video_info(video_path):
     """ffprobeで動画のfps/width/heightを取得"""
-    ffprobe_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "bin", "ffprobe.exe")
+    ffprobe_path = get_ffprobe_path()
     cmd = [
         ffprobe_path, "-v", "quiet", "-print_format", "json",
         "-show_streams", video_path
@@ -395,7 +405,7 @@ def gen_clip(
     try:
         for ci, c in enumerate(queue):
             rel = c["time"] - start
-            dur = 7.0  # 常に固定7秒（動画終端を気にしない）
+            dur = COMMENT_DISPLAY_DURATION_SEC
 
             # フォントで描画できない文字が多い場合はスキップ
             if font_path and not can_render_text(c["text"], font_path):
@@ -404,8 +414,8 @@ def gen_clip(
 
             img_arr, tw, th = create_text_image(c["text"], font_path=font_path)
 
-            min_y = 50
-            max_y = h - th - 50
+            min_y = VIDEO_EDGE_PADDING_PX
+            max_y = h - th - VIDEO_EDGE_PADDING_PX
             candidates = list(range(min_y, max_y + 1, 70))
             np.random.shuffle(candidates)
 
@@ -434,7 +444,7 @@ def gen_clip(
                 "end_sec": rel + dur,
             })
 
-            if (ci + 1) % 50 == 0 or (ci + 1) == len(queue):
+            if (ci + 1) % PROGRESS_LOG_EVERY == 0 or (ci + 1) == len(queue):
                 prog = 5 + int((ci + 1) / max(len(queue), 1) * 15)
                 safe_write_progress(
                     progress_path, prog,
@@ -574,12 +584,12 @@ def main():
     comments = read_comments(args.csv, clip_ranges=clip_ranges)
     print(f"▶ CSVから読み込んだコメント数 = {len(comments)} 件", flush=True)
 
-    CUT_MARGIN = 2
+    # 定数の別名（関数ローカルで読みやすくするため）
+    CUT_MARGIN = CLIP_END_CUT_MARGIN_SEC
+    MAX_RETRY = CLIP_RETRY_COUNT
+    RETRY_DELAY = CLIP_RETRY_DELAY_SEC
 
     video_path = args.video
-
-    MAX_RETRY = 3
-    RETRY_DELAY = 3
     all_success = True
 
     for i, ci in enumerate(clips, 1):

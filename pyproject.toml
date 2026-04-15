@@ -1,0 +1,5 @@
+[project]
+name = "clipgift"
+version = "1.0.39"
+description = "YouTube 配信のチャットからハイライトを検出し、コメント焼き込み MP4 を生成する Flask 製 Windows デスクトップツール"
+requires-python = ">=3.10"
