@@ -18,12 +18,15 @@ rem        copy ProgramFiles(x86) into a separate variable.
 rem ---------------------------------------------------------
 set "PF=%ProgramFiles%"
 set "PFX=%ProgramFiles(x86)%"
+set "LAD=%LOCALAPPDATA%"
 set "ISCC="
 
 if exist "%PF%\Inno Setup 6\ISCC.exe"  set "ISCC=%PF%\Inno Setup 6\ISCC.exe"
 if not defined ISCC if exist "%PFX%\Inno Setup 6\ISCC.exe" set "ISCC=%PFX%\Inno Setup 6\ISCC.exe"
+if not defined ISCC if exist "%LAD%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LAD%\Programs\Inno Setup 6\ISCC.exe"
 if not defined ISCC if exist "%PF%\Inno Setup 5\ISCC.exe"  set "ISCC=%PF%\Inno Setup 5\ISCC.exe"
 if not defined ISCC if exist "%PFX%\Inno Setup 5\ISCC.exe" set "ISCC=%PFX%\Inno Setup 5\ISCC.exe"
+if not defined ISCC if exist "%LAD%\Programs\Inno Setup 5\ISCC.exe" set "ISCC=%LAD%\Programs\Inno Setup 5\ISCC.exe"
 if not defined ISCC for /f "delims=" %%I in ('where ISCC.exe 2^>nul') do if not defined ISCC set "ISCC=%%I"
 
 if not defined ISCC (
