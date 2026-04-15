@@ -343,7 +343,8 @@ def serve_downloads(filename):
     """
     downloads_dir = os.path.realpath(str(Path.home() / "Downloads"))
     requested = os.path.realpath(os.path.join(downloads_dir, filename))
-    if not requested.startswith(downloads_dir + os.sep) and requested != downloads_dir:
+    # ディレクトリ自体やその外側を要求された場合は拒否（必ず配下のファイルである必要がある）
+    if not requested.startswith(downloads_dir + os.sep):
         logger.warning("不正な downloads パスを拒否: %s", filename)
         return jsonify({"error": "invalid path"}), 400
     return send_from_directory(downloads_dir, filename)
@@ -649,7 +650,6 @@ def process_clips():
                         logger.info("🛑 キャンセル検知、処理中断")
                         break
 
-                    current_clip_index = idx
                     clip_title = clip.get("title", f"クリップ{idx}")
                     clip_path = os.path.join(temp_dir, f"clip_{idx}.json")
 
@@ -658,7 +658,10 @@ def process_clips():
 
                     logger.info("▶ %s: サブプロセス開始", clip_title)
 
-                    current_process = subprocess.Popen(
+                    # Popen はロック外で実行（ロック中に長時間処理を抱えない）。
+                    # 起動後にロック内で current_process と current_clip_index を更新し、
+                    # 他スレッド（cancel_process）が一貫した状態を見られるようにする。
+                    proc = subprocess.Popen(
                         [
                             get_python_exe(),
                             os.path.join(BASE_DIR, "mp4inchatnagasi.py"),
@@ -687,13 +690,17 @@ def process_clips():
                         encoding="utf-8",
                         errors="backslashreplace",
                     )
+                    with _state_lock:
+                        current_process = proc
+                        current_clip_index = idx
 
                     output_lines = []
-                    for line in iter(current_process.stdout.readline, ""):
+                    # ローカル参照 proc を使うことで、他スレッドが current_process を入れ替えても影響を受けない
+                    for line in iter(proc.stdout.readline, ""):
                         with _state_lock:
                             is_cancelled = cancel_flag
                         if is_cancelled:
-                            _terminate_then_kill(current_process)
+                            _terminate_then_kill(proc)
                             _write_progress({"progress": -1, "message": "キャンセルにより終了", "current_clip": idx})
                             logger.info("🛑 subprocessを強制終了")
                             break
@@ -704,7 +711,7 @@ def process_clips():
                         _append_log(line)
                         output_lines.append(line)
 
-                    retcode = current_process.wait()
+                    retcode = proc.wait()
                     logger.debug("✅ wait()終了 retcode=%s", retcode)
 
                     with _state_lock:
@@ -713,7 +720,7 @@ def process_clips():
                         error_output = "\n".join(output_lines)
                         logger.error("❌ サブプロセスがエラー終了しました:\n%s", error_output)
                         raise subprocess.CalledProcessError(
-                            retcode, current_process.args, output=error_output
+                            retcode, proc.args, output=error_output
                         )
 
                     if not is_cancelled:
