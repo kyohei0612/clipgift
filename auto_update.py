@@ -7,11 +7,16 @@ import json
 import shutil
 import threading
 import time
+import logging
 import urllib.request
 import urllib.error
 
+logger = logging.getLogger(__name__)
+
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 LOCAL_VERSION_FILE = os.path.join(BASE_DIR, "version.json")
+# 更新進行中マーカー。存在する状態で起動した場合、前回の更新が中断したと判断してロールバックする。
+UPDATE_MARKER_FILE = os.path.join(BASE_DIR, ".update_in_progress")
 
 # ここを自分のリポジトリに書き換える
 GITHUB_OWNER = "kyohei0612"
@@ -144,12 +149,83 @@ def _download_file(filepath):
         f.write(data)
 
 
+def _write_update_marker():
+    """更新開始時にマーカーを置く。中断検出に使う。"""
+    try:
+        with open(UPDATE_MARKER_FILE, "w", encoding="utf-8") as f:
+            f.write(str(int(time.time())))
+    except Exception as e:
+        logger.warning("update marker 書き込み失敗: %s", e)
+
+
+def _clear_update_marker():
+    """更新成功時にマーカーを削除する。"""
+    try:
+        if os.path.exists(UPDATE_MARKER_FILE):
+            os.remove(UPDATE_MARKER_FILE)
+    except Exception as e:
+        logger.warning("update marker 削除失敗: %s", e)
+
+
+def _list_backups():
+    """BASE_DIR 配下の .bak ファイルを列挙（bin/ と __pycache__/ は除外）。"""
+    backups = []
+    for root, dirs, files in os.walk(BASE_DIR):
+        dirs[:] = [d for d in dirs if d not in {".git", "bin", "__pycache__"}]
+        for fname in files:
+            if fname.endswith(".bak"):
+                backups.append(os.path.join(root, fname))
+    return backups
+
+
+def rollback_from_backups():
+    """
+    .bak ファイルを元のファイルに戻す（更新失敗時の手動復旧 or 起動時自動復旧用）。
+    戻り値: 復旧したファイル数
+    """
+    restored = 0
+    for bak in _list_backups():
+        original = bak[:-4]  # ".bak" を除去
+        try:
+            shutil.copy2(bak, original)
+            os.remove(bak)
+            restored += 1
+            logger.info("rollback: %s ← %s", original, bak)
+        except Exception as e:
+            logger.warning("rollback 失敗 (%s): %s", bak, e)
+    return restored
+
+
+def check_and_recover_from_failed_update():
+    """
+    起動時に呼び出す。マーカーが残っていたら前回更新が中断したと判断し、
+    .bak からロールバックする。完了後マーカーを削除する。
+    """
+    if not os.path.exists(UPDATE_MARKER_FILE):
+        return False
+    logger.warning("⚠️ 前回の自動更新が中断された可能性を検知。ロールバックを試行します。")
+    n = rollback_from_backups()
+    logger.warning("ロールバック完了: %d ファイル復旧", n)
+    _clear_update_marker()
+    return True
+
+
+def _cleanup_backups():
+    """成功した更新の .bak を掃除する。"""
+    for bak in _list_backups():
+        try:
+            os.remove(bak)
+        except Exception:
+            pass
+
+
 def run_update_async():
     """バックグラウンドで更新を実行"""
     def _do_update():
         with _update_lock:
             _update_state["status"] = "updating"
             _update_state["message"] = "更新ファイルを取得中..."
+        _write_update_marker()
 
         try:
             # GitHubのファイル一覧を取得して除外リスト以外を更新
@@ -182,14 +258,20 @@ def run_update_async():
             # version.jsonを最後に更新
             _download_file("version.json")
 
+            # 成功: マーカーと .bak を片付ける
+            _clear_update_marker()
+            _cleanup_backups()
+
             with _update_lock:
                 _update_state["status"] = "done"
                 _update_state["message"] = "次回起動時に反映されます"
 
         except Exception as e:
+            # 失敗: マーカーは残したまま（次回起動時にロールバックされる）
+            logger.error("更新失敗: %s", e)
             with _update_lock:
                 _update_state["status"] = "error"
-                _update_state["message"] = f"更新エラー: {str(e)}"
+                _update_state["message"] = f"更新エラー: {str(e)}（次回起動時にロールバックされます）"
 
     threading.Thread(target=_do_update, daemon=True).start()
 

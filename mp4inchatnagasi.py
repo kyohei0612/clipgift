@@ -331,7 +331,7 @@ def run_ffmpeg_with_progress(cmd, progress_path, clip_title, clip_idx, total_fra
         universal_newlines=True,
         creationflags=subprocess.CREATE_NO_WINDOW,
         encoding="utf-8",
-        errors="replace",
+        errors="backslashreplace",
     )
     frame_re = re.compile(r"frame=\s*(\d+)")
     for line in process.stderr:
@@ -521,8 +521,29 @@ def gen_clip(
         print("✅ リソース解放完了", flush=True)
 
 
-def sanitize_filename(s):
-    return re.sub(r"[^\w一-龯ぁ-んァ-ンー]", "_", s)
+_WINDOWS_RESERVED = {
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+}
+
+
+def sanitize_filename(s, max_len=100):
+    """
+    Windows ファイル名として安全な文字列に正規化する。
+    - 英数字 + アンダースコア + 日本語文字以外を _ に置換
+    - 末尾の `.` と空白を除去（Windows のファイル名規則）
+    - Windows 予約語（CON, PRN ほか）を回避
+    - 長さを max_len で打ち切り
+    - 空文字列なら "untitled" にフォールバック
+    """
+    cleaned = re.sub(r"[^\w一-龯ぁ-んァ-ンー]", "_", s)
+    cleaned = cleaned.strip(". ")
+    if cleaned.upper() in _WINDOWS_RESERVED:
+        cleaned = f"_{cleaned}"
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len]
+    return cleaned or "untitled"
 
 
 def main():

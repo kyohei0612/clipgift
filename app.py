@@ -1,8 +1,8 @@
 import os
-import glob
 import subprocess
 import sys
-import re
+import shutil
+import logging
 from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
 import traceback
 import threading
@@ -11,373 +11,34 @@ import io
 import csv
 import tempfile
 import time
-import shutil
 import hashlib
 import webbrowser
 import auto_update
-# === chatbunseki.py インライン ===
-import unicodedata
-from datetime import timedelta
+
+# 分離済みモジュール
+from paths import BASE_DIR, BIN_DIR
+from chat_analyzer import analyze_chat
+from font_manager import list_fonts, load_last_font, save_last_font
+from system_utils import (
+    get_python_exe,
+    cleanup_temp_files_and_dirs,
+    check_and_increment_start_count,
+)
+import config
 
 
-def parse_time_to_seconds(t):
-    try:
-        parts = t.strip().split(":")
-        if len(parts) == 2:
-            m, s = map(int, parts)
-            return m * 60 + s
-        elif len(parts) == 3:
-            h, m, s = map(int, parts)
-            return h * 3600 + m * 60 + s
-        else:
-            raise ValueError(f"不正な時間形式: {t}")
-    except Exception as e:
-        print(f"[parse_time_to_seconds] エラー: {e} ({t})")
-        return None
-
-
-def format_seconds_to_time(s):
-    if isinstance(s, str):
-        s = float(s)
-    td = timedelta(seconds=int(s))
-    total_seconds = int(td.total_seconds())
-    m, s = divmod(total_seconds, 60)
-    h, m = divmod(m, 60)
-    return f"{h}:{m:02}:{s:02}" if h > 0 else f"{m}:{s:02}"
-
-
-def normalize_comment(comment):
-    comment = comment.replace("ｗ", "w")
-    comment = unicodedata.normalize("NFKC", comment)
-    return comment.lower()
-
-
-def analyze_chat_single_keyword(lines, keyword, start_threshold, end_threshold, clip_offset):
-    print(f"🎯 キーワード: {keyword}")
-    normalized_kw = normalize_comment(keyword)
-    pattern = re.compile(re.escape(normalized_kw), re.IGNORECASE)
-
-    hit_times = []
-    for time_str, comment in lines:
-        sec = parse_time_to_seconds(time_str)
-        if sec is None:
-            continue
-        if pattern.search(normalize_comment(comment)):
-            hit_times.append({"sec": sec, "comment": comment})
-
-    if not hit_times:
-        return []
-
-    time_list = [t["sec"] for t in hit_times]
-    clips = []
-    max_time = time_list[-1]
-
-    i = 0
-    while i <= max_time:
-        count = sum(1 for t in time_list if i <= t < i + 10)
-        if count >= start_threshold:
-            clip_start = max(0, i - clip_offset)
-            zero_count = 0
-            j = i + 10
-            found_end = False
-            while j <= max_time + 10:
-                c = sum(1 for t in time_list if j <= t < j + 10)
-                if c <= end_threshold:
-                    zero_count += 1
-                    if zero_count >= 3:
-                        clip_end = j + 10
-                        found_end = True
-                        break
-                else:
-                    zero_count = 0
-                j += 10
-            if not found_end:
-                clip_end = time_list[-1] + 10
-            hit_logs = [
-                f"{format_seconds_to_time(t['sec'])} → {t['comment']}"
-                for t in hit_times
-                if clip_start <= t["sec"] <= clip_end
-            ]
-            clips.append({"start": clip_start, "end": clip_end, "hitLogs": hit_logs})
-            i = clip_end
-        else:
-            i += 1
-
-    return clips
-
-
-def merge_clips(clips):
-    if not clips:
-        return []
-    clips.sort(key=lambda x: x["start"])
-    merged = [clips[0]]
-    for clip in clips[1:]:
-        last_clip = merged[-1]
-        if clip["start"] > clip["end"]:
-            clip["start"], clip["end"] = clip["end"], clip["start"]
-        if clip["start"] <= last_clip["end"]:
-            last_clip["end"] = max(last_clip["end"], clip["end"])
-            last_clip["hitLogs"].extend(clip.get("hitLogs", []))
-        else:
-            merged.append(clip)
-    return merged
-
-
-def analyze_chat(lines, keywords, start_threshold, end_threshold, clip_offset, video_duration_sec=None):
-    print("📦 キーワード:", keywords)
-    print("📈 コメント総数:", len(lines))
-    print("🎥 動画長さ(秒):", video_duration_sec)
-
-    all_clips = []
-    for kw in keywords:
-        all_clips.extend(
-            analyze_chat_single_keyword(lines, kw, start_threshold, end_threshold, clip_offset)
-        )
-
-    merged = merge_clips(all_clips)
-
-    if video_duration_sec is not None:
-        for clip in merged:
-            if clip["end"] > video_duration_sec:
-                clip["end"] = video_duration_sec
-
-    return [
-        {
-            "start": c["start"],
-            "end": c["end"],
-            "start_str": format_seconds_to_time(c["start"]),
-            "end_str": format_seconds_to_time(c["end"]),
-            "hitLogs": c.get("hitLogs", []),
-        }
-        for c in merged
-    ]
-# === chatbunseki.py インライン終わり ===
 import imageio_ffmpeg
-
 from pathlib import Path
-
-# BASE_DIRを先頭で定義
-BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-BIN_DIR = os.path.join(BASE_DIR, "bin")
-os.makedirs(BIN_DIR, exist_ok=True)
-
-START_COUNT_FILE = os.path.join(BASE_DIR, "server_start_count.txt")
-LAST_FONT_FILE = os.path.join(BIN_DIR, "last_font.json")
-
-
-def get_python_exe():
-    """コンソールなしのpythonw.exeを優先して返す"""
-
-    def _resolve(path):
-        """python.exe → pythonw.exe に変換して存在すれば返す"""
-        pythonw = path.replace("python.exe", "pythonw.exe")
-        if os.path.exists(pythonw):
-            return pythonw
-        if os.path.exists(path):
-            return path
-        return None
-
-    # ① インストール時に記録したパスを最優先
-    python_path_file = os.path.join(BIN_DIR, "python_path.txt")
-    if os.path.exists(python_path_file):
-        try:
-            with open(python_path_file, "r", encoding="utf-8") as pf:
-                recorded = pf.read().strip()
-            if recorded:
-                result = _resolve(recorded)
-                if result:
-                    return result
-        except Exception:
-            pass
-
-    # ② sys.executableがpython*.exeなら使う（通常の.py実行時）
-    exe = sys.executable
-    if "python" in os.path.basename(exe).lower() and exe.endswith(".exe"):
-        result = _resolve(exe)
-        if result:
-            return result
-
-    # ③ exe化されている場合: PYTHONHOME環境変数から探す
-    pythonhome = os.environ.get("PYTHONHOME", "")
-    if pythonhome:
-        candidate = os.path.join(pythonhome, "python.exe")
-        result = _resolve(candidate)
-        if result:
-            return result
-
-    # ④ exe化されている場合: sys.executableと同じフォルダにpython.exeがあるか確認
-    exe_dir = os.path.dirname(exe)
-    candidate = os.path.join(exe_dir, "python.exe")
-    result = _resolve(candidate)
-    if result:
-        return result
-
-    # ⑤ PATHからpythonを探す（最終フォールバック）
-    python_in_path = shutil.which("pythonw") or shutil.which("python")
-    if python_in_path:
-        return python_in_path
-
-    # ⑥ 何も見つからなければsys.executableをそのまま返す
-    return exe
-
-
-def get_font_dirs():
-    """システム・ユーザーフォントフォルダを返す"""
-    dirs = []
-    windir = os.environ.get("WINDIR", "C:/Windows")
-    dirs.append(os.path.join(windir, "Fonts"))
-    localappdata = os.environ.get("LOCALAPPDATA", "")
-    if localappdata:
-        dirs.append(os.path.join(localappdata, "Microsoft", "Windows", "Fonts"))
-    return dirs
-
-
-def get_font_japanese_name(path):
-    """フォントファイルから日本語表示名を取得する。日本語名がなければNoneを返す"""
-    try:
-        from fontTools.ttLib import TTFont
-        font = TTFont(path, fontNumber=0)
-        name_table = font["name"]
-        # nameID=4: Full name, nameID=1: Family name
-        # langID=0x411(日本語) または platformID=1+langID=11(Mac日本語) を優先
-        for target_id in (4, 1):
-            # Windows日本語(platformID=3, langID=0x411)
-            for record in name_table.names:
-                if record.nameID == target_id and record.platformID == 3 and record.langID == 0x411:
-                    try:
-                        name = record.toUnicode()
-                        if name:
-                            return name
-                    except Exception:
-                        pass
-            # Mac日本語(platformID=1, langID=11)
-            for record in name_table.names:
-                if record.nameID == target_id and record.platformID == 1 and record.langID == 11:
-                    try:
-                        name = record.toUnicode()
-                        if name:
-                            return name
-                    except Exception:
-                        pass
-    except Exception:
-        pass
-    return None
-
-
-def list_fonts():
-    """日本語名を持つフォントのみ返す"""
-    fonts = []
-    for d in get_font_dirs():
-        if not os.path.isdir(d):
-            continue
-        for fname in sorted(os.listdir(d)):
-            if fname.lower().endswith((".ttf", ".otf", ".ttc")):
-                path = os.path.join(d, fname)
-                display_name = get_font_japanese_name(path)
-                if display_name:  # 日本語名があるもののみ
-                    fonts.append({"name": fname, "display_name": display_name, "path": path})
-    # 重複除去（ファイル名優先）
-    seen = set()
-    unique = []
-    for f in fonts:
-        if f["name"] not in seen:
-            seen.add(f["name"])
-            unique.append(f)
-    # 表示名でソート
-    unique.sort(key=lambda x: x["display_name"].lower())
-    return unique
-
-
-def load_last_font():
-    try:
-        with open(LAST_FONT_FILE, "r", encoding="utf-8") as f:
-            return json.load(f).get("font_name", "")
-    except Exception:
-        return ""
-
-
-def save_last_font(font_name):
-    try:
-        with open(LAST_FONT_FILE, "w", encoding="utf-8") as f:
-            json.dump({"font_name": font_name}, f, ensure_ascii=False)
-    except Exception as e:
-        print(f"[save_last_font] エラー: {e}")
-
-
-def cleanup_temp_files_and_dirs():
-    """
-    不要な一時ファイル・ディレクトリをすべて削除（clipgen_*系や.mp3/.wavなど）
-    """
-    temp_root = tempfile.gettempdir()
-
-    # 削除対象（拡張子ファイル + clipgen_*系フォルダ）
-    patterns = [
-        os.path.join(temp_root, "clipgen_*"),
-        os.path.join(temp_root, "*.mp3"),
-        os.path.join(temp_root, "*.wav"),
-        os.path.join(temp_root, "*.tmp"),
-        os.path.join(temp_root, "*.json"),
-    ]
-
-    deleted_count = 0
-
-    for pattern in patterns:
-        for path in glob.glob(pattern):
-            try:
-                if os.path.isdir(path):
-                    shutil.rmtree(path)
-                    print(f"🗑️ 一時ディレクトリ削除: {path}")
-                else:
-                    os.remove(path)
-                    print(f"🗑️ 一時ファイル削除: {path}")
-                deleted_count += 1
-            except PermissionError as e:
-                if hasattr(e, "winerror") and e.winerror == 32:
-                    # 他プロセスが使用中 → ログを出さずスキップ
-                    continue
-                else:
-                    print(f"⚠️ PermissionError: {path}")
-                    traceback.print_exc()
-            except Exception as e:
-                print(f"⚠️ 削除エラー: {path}: {e}")
-                traceback.print_exc()
-
-    print(f"✅ 合計削除数: {deleted_count}")
-
-
-def check_and_increment_start_count():
-    """
-    起動回数をカウントし、2回に達したら一時ファイル削除
-    """
-    count = 0
-
-    if os.path.exists(START_COUNT_FILE):
-        try:
-            with open(START_COUNT_FILE, "r", encoding="utf-8") as f:
-                count = int(f.read().strip())
-        except Exception:
-            print("⚠️ 起動回数読み取りエラー。初期化します")
-            count = 0
-
-    count += 1
-    print(f"🔢 起動回数: {count}/2")
-
-    if count >= 2:
-        print("🔄 起動回数2回に達したため一時ファイルを全削除します")
-        cleanup_temp_files_and_dirs()
-        count = 0  # カウントをリセット
-
-    try:
-        with open(START_COUNT_FILE, "w", encoding="utf-8") as f:
-            f.write(str(count))
-    except Exception as e:
-        print(f"⚠️ 起動回数の保存に失敗: {e}")
-
 
 
 # Flaskアプリ初期化 (テンプレート・スタティック指定)
-import logging
+# ルートロガーの設定。個別モジュールは logging.getLogger(__name__) を使用する。
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
+logger = logging.getLogger(__name__)
 
 app = Flask(
     __name__,
@@ -385,7 +46,47 @@ app = Flask(
     static_folder=os.path.join(BASE_DIR, "static"),
 )
 
+# --- アップロード制限・拡張子ホワイトリスト（config.py で定義） ---
+MAX_UPLOAD_BYTES = config.MAX_UPLOAD_BYTES
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 
+ALLOWED_VIDEO_EXTS = config.ALLOWED_VIDEO_EXTS
+ALLOWED_CSV_EXTS = config.ALLOWED_CSV_EXTS
+
+
+def _validate_upload(file_storage, allowed_exts, label="ファイル"):
+    """
+    アップロードファイルを検証する。
+    - 空ファイル拒否
+    - 拡張子ホワイトリスト
+    問題があれば (flask Response, status_code) のタプルを、OK なら None を返す。
+    """
+    if file_storage is None or not file_storage.filename:
+        return jsonify({"error": f"{label}が指定されていません"}), 400
+
+    filename = file_storage.filename
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in allowed_exts:
+        allowed_str = ", ".join(sorted(allowed_exts))
+        return (
+            jsonify({
+                "error": f"{label}の拡張子が不正です（許可: {allowed_str}）",
+                "filename": filename,
+            }),
+            400,
+        )
+    return None
+
+
+@app.errorhandler(413)
+def _handle_too_large(_e):
+    limit_gb = MAX_UPLOAD_BYTES / (1024 ** 3)
+    return (
+        jsonify({
+            "error": f"アップロードサイズが大きすぎます（上限 {limit_gb:.0f}GB）",
+        }),
+        413,
+    )
 
 
 def generate_temp_audio_name(filename, clip_start, clip_end):
@@ -397,6 +98,32 @@ def generate_temp_audio_name(filename, clip_start, clip_end):
     return f"clipgen_{hashed}.mp3"
 
 
+def _terminate_then_kill(proc, timeout=None):
+    """
+    プロセスを SIGTERM 相当で停止し、timeout 内に終わらなければ kill する。
+    キャンセル時の応答性を確保するためのヘルパー。
+    """
+    if proc is None:
+        return
+    if timeout is None:
+        timeout = config.TERMINATE_TIMEOUT_SEC
+    try:
+        if proc.poll() is not None:
+            return  # 既に終了
+        proc.terminate()
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            logger.warning("terminate でも止まらないため kill にエスカレート (pid=%s)", proc.pid)
+            proc.kill()
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                logger.error("kill しても応答なし (pid=%s)", proc.pid)
+    except Exception as e:
+        logger.warning("プロセス停止中に例外: %s", e)
+
+
 # ハートビート管理
 _last_heartbeat = time.time()
 _heartbeat_lock = threading.Lock()
@@ -406,7 +133,7 @@ _is_downloading_lock = threading.Lock()
 def _heartbeat_watchdog():
     """ハートビートが途絶えたらサーバーを終了する"""
     while True:
-        time.sleep(1)
+        time.sleep(config.WATCHDOG_INTERVAL_SEC)
         with _heartbeat_lock:
             elapsed = time.time() - _last_heartbeat
         # 更新中はwatchdogを無効化
@@ -420,17 +147,17 @@ def _heartbeat_watchdog():
         with _is_downloading_lock:
             if _is_downloading:
                 continue
-        # クリップ処理中はwatchdogを無効化
-        if not processing_lock.acquire(blocking=False):
-            continue
-        processing_lock.release()
-        if elapsed > 30:
-            print("💤 ブラウザが閉じられました。サーバーを終了します。", flush=True)
+        # クリップ処理中はwatchdogを無効化（フラグをロック内で原子的にチェック）
+        with _state_lock:
+            if _is_processing:
+                continue
+        if elapsed > config.HEARTBEAT_TIMEOUT_SEC:
+            logger.info("💤 ブラウザが閉じられました。サーバーを終了します。")
             os._exit(0)
 
-# watchdogスレッドをデーモンとして起動（起動直後のfalse positiveを防ぐため10秒遅延）
+# watchdogスレッドをデーモンとして起動（起動直後のfalse positiveを防ぐため遅延）
 def _start_watchdog_delayed():
-    time.sleep(10)
+    time.sleep(config.WATCHDOG_START_DELAY_SEC)
     _heartbeat_watchdog()
 
 _watchdog_thread = threading.Thread(target=_start_watchdog_delayed, daemon=True)
@@ -478,18 +205,31 @@ def get_fonts():
 @app.route("/analyze_chat_csv", methods=["POST"])
 def analyze_chat_csv():
     try:
-        # ① ファイル存在チェック
+        # ① ファイル存在チェック＋検証
         if "chatFile" not in request.files:
             return jsonify({"error": "チャットファイルが見つかりません"}), 400
 
         file = request.files["chatFile"]
+        err = _validate_upload(file, ALLOWED_CSV_EXTS, "チャットファイル")
+        if err is not None:
+            return err
 
-        # ② CSVデコード（UTF-8優先 → Shift-JISフォールバック）
-        try:
-            stream = io.StringIO(file.stream.read().decode("utf-8"))
-        except UnicodeDecodeError:
-            file.stream.seek(0)
-            stream = io.StringIO(file.stream.read().decode("shift_jis"))
+        # ② CSVデコード（UTF-8優先 → Shift-JIS / CP932 フォールバック）
+        # 先にバイト列で取り切ってから複数エンコードを順次試す（seek 不可ストリーム対策）
+        raw_bytes = file.stream.read()
+        text = None
+        for enc in ("utf-8-sig", "utf-8", "cp932", "shift_jis"):
+            try:
+                text = raw_bytes.decode(enc)
+                logger.debug("CSV デコード成功: %s", enc)
+                break
+            except UnicodeDecodeError:
+                continue
+        if text is None:
+            # 最後の手段: 不正バイトを置換しつつ utf-8 で読む
+            text = raw_bytes.decode("utf-8", errors="replace")
+            logger.warning("CSV デコード fallback: utf-8 + errors=replace")
+        stream = io.StringIO(text)
 
         reader = csv.reader(stream)
         next(reader, None)  # ヘッダー行をスキップ
@@ -524,7 +264,7 @@ def analyze_chat_csv():
         return jsonify({"success": True, "clips": result})
 
     except Exception as e:
-        print(f"[analyze_chat_csv] エラー: {e}")
+        logger.error("analyze_chat_csv エラー: %s", e)
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
@@ -536,6 +276,10 @@ def extract_audio():
             return jsonify({"error": "動画ファイルがありません"}), 400
 
         video_file = request.files["video"]
+        err = _validate_upload(video_file, ALLOWED_VIDEO_EXTS, "動画ファイル")
+        if err is not None:
+            return err
+
         clip_start = float(request.form.get("start", 0))
         clip_end = float(request.form.get("end", 60))
 
@@ -544,7 +288,7 @@ def extract_audio():
         audio_path = os.path.join(temp_dir, audio_name)
 
         if os.path.exists(audio_path):
-            print(f"🎵 キャッシュヒット: {audio_path}")
+            logger.info("🎵 キャッシュヒット: %s", audio_path)
             return send_file(audio_path, mimetype="audio/mpeg")
 
         fd, temp_video_path = tempfile.mkstemp(suffix=".mp4")
@@ -574,7 +318,7 @@ def extract_audio():
         result = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
 
         if result.returncode != 0:
-            print("FFmpegエラー:", result.stderr)
+            logger.error("FFmpegエラー: %s", result.stderr)
             return jsonify({"error": "音声抽出失敗", "detail": result.stderr}), 500
 
         try:
@@ -585,14 +329,23 @@ def extract_audio():
         return send_file(audio_path, mimetype="audio/mpeg")
 
     except Exception as e:
-        print(f"[extract_audio] エラー: {e}")
+        logger.error("extract_audio エラー: %s", e)
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/downloads/<path:filename>")
 def serve_downloads(filename):
-    downloads_dir = str(Path.home() / "Downloads")
+    """
+    Downloads ディレクトリ配下のファイルを返す。
+    send_from_directory は内部で safe_join するが、念のため realpath で
+    Downloads 配下に収まっているか明示的にチェックする（多層防御）。
+    """
+    downloads_dir = os.path.realpath(str(Path.home() / "Downloads"))
+    requested = os.path.realpath(os.path.join(downloads_dir, filename))
+    if not requested.startswith(downloads_dir + os.sep) and requested != downloads_dir:
+        logger.warning("不正な downloads パスを拒否: %s", filename)
+        return jsonify({"error": "invalid path"}), 400
     return send_from_directory(downloads_dir, filename)
 
 
@@ -654,14 +407,14 @@ def download_yt_video_chat():
                 creationflags=subprocess.CREATE_NO_WINDOW,
                 text=True,
                 encoding="utf-8",
-                errors="replace",
+                errors="backslashreplace",
             )
             output_lines = []
             for line in iter(proc.stdout.readline, ""):
                 line = line.rstrip()
                 if not line:
                     continue
-                print(f"[DL] {line}", flush=True)
+                logger.info("[DL] %s", line)
                 _dl_append_log(line)
                 output_lines.append(line)
                 # progress.jsonへの書き込みはdownloader.pyに完全に任せる
@@ -676,8 +429,8 @@ def download_yt_video_chat():
                 except Exception:
                     pass
             # 正常終了時はdownloader.pyが100%を書いているので何もしない
-            # フロントが完了を読み取るまで5秒待ってから削除
-            time.sleep(5)
+            # フロントが完了を読み取るまで待ってから削除
+            time.sleep(config.COMPLETION_HOLD_SEC)
             try:
                 os.remove(dl_progress_path)
             except Exception:
@@ -745,9 +498,9 @@ def get_progress_file():
         return jsonify({"progress": -1, "message": "不正なパスです"}), 400
     if not abs_path.endswith(".json"):
         return jsonify({"progress": -1, "message": "不正なファイル形式です"}), 400
-    # atomic renameと競合しないようリトライ最大3回
+    # atomic renameと競合しないようリトライ
     last_err = None
-    for _ in range(3):
+    for _ in range(config.PROGRESS_READ_RETRIES):
         try:
             with open(progress_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -757,18 +510,26 @@ def get_progress_file():
             return jsonify(data)
         except (json.JSONDecodeError, OSError) as e:
             last_err = e
-            time.sleep(0.05)  # 50ms待ってリトライ
+            time.sleep(config.PROGRESS_READ_RETRY_INTERVAL_SEC)
     return jsonify({"progress": 0, "message": "読み取り待機中"})
 
 
 processing_lock = threading.Lock()
+
+# 共有状態。すべて _state_lock で保護して読み書きする。
+# - _is_processing:  クリップ処理中かどうか（watchdog の無効化判定に使用）
+# - current_process: 実行中の subprocess.Popen。キャンセル時に terminate するため参照
+# - current_clip_index: UI 表示用の現在クリップ番号
+# - cancel_flag: キャンセル要求フラグ
+_state_lock = threading.Lock()
+_is_processing = False
 current_process = None
-cancel_flag = False
-_cancel_flag_lock = threading.Lock()
 current_clip_index = 0
+cancel_flag = False
+
 _process_logs = []
 _process_logs_lock = threading.Lock()
-_PROCESS_LOG_MAX = 200
+_PROCESS_LOG_MAX = config.PROCESS_LOG_MAX
 
 # ダウンロードログ（グローバル管理）
 _dl_logs_global = []
@@ -777,9 +538,9 @@ _dl_logs_global_lock = threading.Lock()
 
 @app.route("/process_clips", methods=["POST"])
 def process_clips():
-    global current_process, cancel_flag, current_clip_index
-    print("🚀 リクエスト受信時間:", time.strftime("%Y-%m-%d %H:%M:%S"))
-    print("💡 request.content_length:", request.content_length)
+    global current_process, cancel_flag, current_clip_index, _is_processing
+    logger.info("🚀 リクエスト受信時間: %s", time.strftime("%Y-%m-%d %H:%M:%S"))
+    logger.debug("request.content_length: %s", request.content_length)
 
     if not processing_lock.acquire(blocking=False):
         return (
@@ -789,18 +550,34 @@ def process_clips():
             200,
         )
 
+    # watchdog から「処理中」と見えるようにフラグを立てる。
+    with _state_lock:
+        _is_processing = True
+
+    # Thread に処理を委譲したかどうか。委譲したら lock や temp_dir の解放は run_process の finally に任せる。
+    # 委譲前に early return / 例外で抜ける場合は、末尾 finally で解放する。
+    thread_started = False
+    temp_dir = None  # mkdtemp 後に値が入る
+
     try:
-        print("✅ /process_clips エンドポイント呼び出し", flush=True)
+        logger.info("✅ /process_clips エンドポイント呼び出し")
 
         video_file = request.files.get("video")
         chat_file = request.files.get("chat")
         clips_json = request.form.get("clips")
 
-        print("💡 受信したclips_json文字列:", clips_json)
+        logger.debug("受信したclips_json文字列: %s", clips_json)
 
         if not video_file or not chat_file or not clips_json:
-            processing_lock.release()
             return jsonify({"error": "必要なデータが不足しています"}), 400
+
+        for _f, _exts, _label in (
+            (video_file, ALLOWED_VIDEO_EXTS, "動画ファイル"),
+            (chat_file, ALLOWED_CSV_EXTS, "チャットファイル"),
+        ):
+            err = _validate_upload(_f, _exts, _label)
+            if err is not None:
+                return err
 
         clips = json.loads(clips_json)
         font_name = request.form.get("font_name", "")
@@ -819,7 +596,7 @@ def process_clips():
         os.makedirs(downloads_dir, exist_ok=True)
 
         temp_dir = tempfile.mkdtemp(prefix="clipgen_")
-        print(f"📝 一時ディレクトリ作成: {temp_dir}")
+        logger.info("📝 一時ディレクトリ作成: %s", temp_dir)
 
         video_path = os.path.join(temp_dir, "input.mp4")
         chat_path = os.path.join(temp_dir, "chat.csv")
@@ -828,12 +605,12 @@ def process_clips():
         video_file.save(video_path)
         chat_file.save(chat_path)
 
-        print("💡 clipsの数:", len(clips))
-        print("💡 clipsの中身:", json.dumps(clips, ensure_ascii=False))
+        logger.info("💡 clipsの数: %d", len(clips))
+        logger.debug("clipsの中身: %s", json.dumps(clips, ensure_ascii=False))
 
-        with _cancel_flag_lock:
+        with _state_lock:
             cancel_flag = False
-        current_clip_index = 0
+            current_clip_index = 0
 
         with open(progress_file, "w", encoding="utf-8") as f:
             json.dump(
@@ -857,19 +634,19 @@ def process_clips():
                 json.dump(data, f, ensure_ascii=False)
 
         def run_process():
-            global current_process, current_clip_index
+            global current_process, current_clip_index, _is_processing
             with _process_logs_lock:
                 _process_logs.clear()
             try:
                 for idx, clip in enumerate(clips, 1):
                     _append_log(f"▶ クリップ {idx}/{len(clips)} 開始")
-                    with _cancel_flag_lock:
+                    with _state_lock:
                         is_cancelled = cancel_flag
-                    print(f"▶ ループ開始 idx={idx}, cancel_flag={is_cancelled}")
+                    logger.debug("▶ ループ開始 idx=%d, cancel_flag=%s", idx, is_cancelled)
 
                     if is_cancelled:
                         _write_progress({"progress": -1, "message": "キャンセルされました", "current_clip": idx})
-                        print("🛑 キャンセル検知、処理中断")
+                        logger.info("🛑 キャンセル検知、処理中断")
                         break
 
                     current_clip_index = idx
@@ -879,7 +656,7 @@ def process_clips():
                     with open(clip_path, "w", encoding="utf-8") as f:
                         json.dump([clip], f, ensure_ascii=False)
 
-                    print(f"▶ {clip_title}: サブプロセス開始")
+                    logger.info("▶ %s: サブプロセス開始", clip_title)
 
                     current_process = subprocess.Popen(
                         [
@@ -908,70 +685,78 @@ def process_clips():
                         text=True,
                         bufsize=1,
                         encoding="utf-8",
-                        errors="replace",
+                        errors="backslashreplace",
                     )
 
                     output_lines = []
                     for line in iter(current_process.stdout.readline, ""):
-                        with _cancel_flag_lock:
+                        with _state_lock:
                             is_cancelled = cancel_flag
                         if is_cancelled:
-                            current_process.terminate()
+                            _terminate_then_kill(current_process)
                             _write_progress({"progress": -1, "message": "キャンセルにより終了", "current_clip": idx})
-                            print("🛑 subprocessを強制終了")
+                            logger.info("🛑 subprocessを強制終了")
                             break
                         line = line.strip()
                         if not line:
                             continue
-                        print("📢 mp4inchatnagasi:", line)
+                        logger.debug("📢 mp4inchatnagasi: %s", line)
                         _append_log(line)
                         output_lines.append(line)
 
                     retcode = current_process.wait()
-                    print(f"✅ wait()終了 retcode={retcode}")
+                    logger.debug("✅ wait()終了 retcode=%s", retcode)
 
-                    with _cancel_flag_lock:
+                    with _state_lock:
                         is_cancelled = cancel_flag
                     if retcode != 0 and not is_cancelled:
                         error_output = "\n".join(output_lines)
-                        print("❌ サブプロセスがエラー終了しました:")
-                        print(error_output)
+                        logger.error("❌ サブプロセスがエラー終了しました:\n%s", error_output)
                         raise subprocess.CalledProcessError(
                             retcode, current_process.args, output=error_output
                         )
 
                     if not is_cancelled:
-                        print(f"✅ {clip_title}: 処理完了")
+                        logger.info("✅ %s: 処理完了", clip_title)
 
-                with _cancel_flag_lock:
+                with _state_lock:
                     is_cancelled = cancel_flag
                 if not is_cancelled:
                     _append_log("✅ 全クリップ処理完了")
-                    print("✅ 全クリップ処理完了")
+                    logger.info("✅ 全クリップ処理完了")
                     _write_progress({"progress": 100, "message": "全クリップ処理完了", "current_clip": len(clips), "all_done": True})
-                    time.sleep(5)
+                    time.sleep(config.COMPLETION_HOLD_SEC)
                     try:
                         os.remove(progress_file)
                     except Exception:
                         pass
 
             except Exception as e:
-                print("❌ run_process全体でエラー:", e)
+                logger.error("❌ run_process全体でエラー: %s", e)
                 try:
                     _write_progress({"progress": -1, "message": f"全体失敗: {str(e)}", "current_clip": 0})
                 except Exception as e2:
-                    print("⚠️ 進捗ファイル書き込みで再エラー:", e2)
+                    logger.warning("⚠️ 進捗ファイル書き込みで再エラー: %s", e2)
             finally:
-                current_process = None
-                current_clip_index = 0
+                # 状態をまとめてクリア（watchdog の誤検知を防ぐため _is_processing も落とす）
+                with _state_lock:
+                    current_process = None
+                    current_clip_index = 0
+                    _is_processing = False
+                # 一時ディレクトリの掃除（残骸を残さない）
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    logger.debug("🗑️ temp_dir 削除: %s", temp_dir)
+                except Exception as e:
+                    logger.warning("temp_dir 削除に失敗: %s", e)
                 processing_lock.release()
 
         threading.Thread(target=run_process, daemon=True).start()
+        thread_started = True  # 以降の lock 解放は run_process.finally に委譲
 
         return jsonify({"success": True, "progress_path": progress_file})
 
     except Exception:
-        processing_lock.release()
         return (
             jsonify(
                 {
@@ -981,16 +766,29 @@ def process_clips():
             ),
             500,
         )
+    finally:
+        # Thread に委譲できなかった経路（検証エラー・例外など）で状態とロックを解放する
+        if not thread_started:
+            with _state_lock:
+                _is_processing = False
+            processing_lock.release()
+            # temp_dir が作成済みなら掃除する（Thread に委譲したケースは run_process.finally が処理する）
+            if temp_dir is not None:
+                try:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                except Exception as e:
+                    logger.warning("temp_dir 削除に失敗 (early return): %s", e)
 
 
 @app.route("/cancel_process", methods=["POST"])
 def cancel_process():
-    global current_process
-    if current_process and current_process.poll() is None:
-        with _cancel_flag_lock:
-            global cancel_flag
-            cancel_flag = True
-        current_process.terminate()
+    global cancel_flag
+    # current_process を _state_lock 下でスナップショットしてから判定する
+    with _state_lock:
+        proc = current_process
+        cancel_flag = True
+    if proc is not None and proc.poll() is None:
+        _terminate_then_kill(proc)
         return jsonify({"success": True, "message": "処理をキャンセルしました"})
     else:
         return jsonify({"success": False, "message": "処理中のプロセスがありません"})
@@ -1018,6 +816,9 @@ def update_state_route():
 
 if __name__ == "__main__":
 
+    # 前回の自動更新が中断していた場合は .bak からロールバックする
+    auto_update.check_and_recover_from_failed_update()
+
     # サーバー起動回数チェック&一時ディレクトリ削除
     check_and_increment_start_count()
 
@@ -1036,7 +837,7 @@ if __name__ == "__main__":
         def _open_browser():
             import time
             time.sleep(1.5)
-            webbrowser.open("http://127.0.0.1:5000")
+            webbrowser.open(f"http://{config.SERVER_HOST}:{config.SERVER_PORT}")
         threading.Thread(target=_open_browser, daemon=False).start()
 
-    app.run(debug=False, port=5000)
+    app.run(debug=False, host=config.SERVER_HOST, port=config.SERVER_PORT)

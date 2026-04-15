@@ -8,3 +8,7 @@ installer_output/
 installer_assets/
 *.bak
 server_start_count.txt
+__pycache__/
+*.pyc
+.claude/
+.update_in_progress
