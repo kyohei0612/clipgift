@@ -1,5 +1,5 @@
 #define MyAppName "YouTube クリップツール"
-#define MyAppVersion "1.0.42"
+#define MyAppVersion "1.0.43"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
