@@ -458,21 +458,30 @@ def gen_clip(
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
         # ffmpegコマンド構築
+        # 重要: 大量コメント時に -i で PNG を 1 枚ずつ追加していくと
+        # Windows のコマンドライン長制限 (~32K 文字, WinError 206) を超えてしまう。
+        # PNG は filter_complex 内の `movie` フィルタで読み込むことで -i を元動画 1 個に抑える。
         cmd = [_ffmpeg_path, "-y"]
 
-        # 入力1: 元動画(trimして切り出し)
+        # 入力: 元動画 (trim して切り出し) のみ
         cmd += ["-ss", str(start), "-t", str(clip_duration), "-i", video_path]
 
-        # 入力2以降: 各コメント画像
-        for item in overlay_items:
-            cmd += ["-i", item["img_path"]]
-
         if overlay_items:
-            # filter_complexをファイルに書き出してコマンドライン長制限を回避
+            # filter graph を構築。各 PNG は `movie=path` で filter graph 内に読み込む。
+            # ffmpeg の filter parser では:
+            #   1段目 (filter arg value 内): ':' は値区切りなので '\:' でエスケープ
+            #   2段目 (filtergraph 全体): その '\' をさらに '\\' でエスケープ
+            # → 結果として ':' は '\\:' (バックスラッシュ2 個 + コロン) で記述する必要がある。
+            # 単一引用符による wrap は filter_complex_script ファイル経由では効かないので
+            # 必ず escape する。Windows パスの '\' は '/' に置換しておく。
+            def _escape_movie_path(p):
+                return p.replace("\\", "/").replace(":", r"\\:")
+
             filter_parts = []
             prev = "[0:v]"
             n = len(overlay_items)
             for i, item in enumerate(overlay_items):
+                label_mov = f"[mov{i}]"
                 label_out = f"[v{i}]" if i < n - 1 else "[vout]"
                 s = item["start_sec"]
                 e = item["end_sec"]
@@ -481,8 +490,11 @@ def gen_clip(
                 y = item["y"]
                 x_expr = f"W-((W+{tw})*(t-{s:.3f})/{d:.3f})"
                 enable_expr = f"between(t,{s:.3f},{e:.3f})"
+                img_path_esc = _escape_movie_path(item["img_path"])
+                # movie で PNG をロードして label_mov に出力 → overlay の入力として消費
+                filter_parts.append(f"movie={img_path_esc}{label_mov}")
                 filter_parts.append(
-                    f"{prev}[{i+1}:v]overlay=x='{x_expr}':y={y}:enable='{enable_expr}'{label_out}"
+                    f"{prev}{label_mov}overlay=x='{x_expr}':y={y}:enable='{enable_expr}'{label_out}"
                 )
                 prev = label_out
 
@@ -490,7 +502,10 @@ def gen_clip(
             filter_script_path = os.path.join(tmp_dir, "filter.txt")
             with open(filter_script_path, "w", encoding="utf-8") as ff:
                 ff.write(filter_complex)
-            print(f"📝 filter_complex: {len(filter_complex)} 文字 → ファイルで渡します", flush=True)
+            print(
+                f"📝 filter_complex: {len(filter_complex)} 文字 / overlay {n} 件 → ファイルで渡します",
+                flush=True,
+            )
             cmd += ["-filter_complex_script", filter_script_path, "-map", "[vout]", "-map", "0:a"]
         else:
             # コメントなし: そのままコピー
