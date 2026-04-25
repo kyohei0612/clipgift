@@ -520,6 +520,9 @@ def gen_clip(
         print(f"❌ 書き出しエラー: {e}", flush=True)
         safe_write_progress(progress_path, -1, f"{clip_title}: エラー - {e}", clip_idx)
         traceback.print_exc()
+        # 例外を呼び出し元に伝搬させる（main() のリトライ＆失敗判定に必須）。
+        # 以前はここで握り潰していたため「処理完了」扱いになりファイル無生成のまま終了する致命バグになっていた。
+        raise
 
     finally:
         # 一時PNG削除
@@ -640,6 +643,11 @@ def main():
                     clip_title=display_title,
                     font_path=args.font if args.font else None,
                 )
+                # 多層防御: gen_clip が成功と返しても、実際にファイルが生成されたか念押しで確認する
+                if not os.path.exists(out_file):
+                    raise RuntimeError(
+                        f"処理完了と判定されたが出力ファイルが存在しません: {out_file}"
+                    )
                 print(f"✅ Clip {i} 成功 (試行 {attempt})", flush=True)
                 success = True
                 break
@@ -670,8 +678,15 @@ def main():
         gc.collect()
         print(f"✅ メモリクリーンアップ完了", flush=True)
 
-    print("✅ 全クリップ処理完了", flush=True)
+    if all_success:
+        print("✅ 全クリップ処理完了", flush=True)
+        return 0
+    else:
+        # 1 件でも失敗していたら non-zero で終わり、親（app.py）に異常を伝える。
+        # 以前はここを 0 で抜けていたので「処理完了」と誤認されていた。
+        print("❌ 一部のクリップが失敗しました", flush=True)
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
