@@ -1073,6 +1073,27 @@ if __name__ == "__main__":
         except Exception:
             pass
 
+    # === 多重起動防止 ===
+    # 既に同 port で稼働中の ClipGift があればブラウザを開いて自プロセスは終了する。
+    # （古いプロセス累積による 500 系の不整合を防ぐ + 二重起動でユーザーが混乱する事故を防ぐ）
+    def _is_already_running(host: str, port: int) -> bool:
+        import socket
+        try:
+            with socket.create_connection((host, port), timeout=0.8):
+                return True
+        except (OSError, socket.timeout):
+            return False
+
+    if _is_already_running(config.SERVER_HOST, config.SERVER_PORT):
+        logger.warning(
+            "⚠️ 既に ClipGift が %s:%s で稼働中です。既存ウィンドウへブラウザを開きます。",
+            config.SERVER_HOST, config.SERVER_PORT,
+        )
+        if os.environ.get("LAUNCHED_BY_VBS") != "1":
+            import webbrowser
+            webbrowser.open(f"http://{config.SERVER_HOST}:{config.SERVER_PORT}")
+        sys.exit(0)
+
     # vbs経由でない（コマンドライン直接起動）場合はブラウザを開く
     if os.environ.get("LAUNCHED_BY_VBS") != "1":
         import webbrowser

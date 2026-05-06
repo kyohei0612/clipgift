@@ -220,8 +220,47 @@ def _extract_next_cont(json_data):
     return walk(json_data)
 
 
+class ChatNotAvailableError(RuntimeError):
+    """チャットリプレイが取得できない動画に対するエラー（ライブ配信中 / リプレイ無効化 / メンバー限定など）。"""
+
+    def __init__(self, reason: str, user_message: str):
+        super().__init__(reason)
+        self.user_message = user_message
+
+
+def _detect_unavailable_reason(html: str) -> tuple[bool, str]:
+    """HTML を見てチャット取得不可の理由を判別。
+    Returns: (is_unavailable, user_facing_message)
+    """
+    # ライブ配信中（=リプレイ未生成）
+    if '"isLive":true' in html or '"isLiveBroadcast":"True"' in html:
+        return True, (
+            "この URL はライブ配信中の動画のようです。\n"
+            "配信終了 → アーカイブ生成 → チャットリプレイ反映まで待ってから再度お試しください\n"
+            "（通常、配信終了から数十分〜数時間後にチャットリプレイが取得可能になります）。"
+        )
+    # チャットリプレイ無効化済み
+    if '"isChatReplayEnabled":false' in html:
+        return True, (
+            "この動画はチャットリプレイが無効化されています。\n"
+            "投稿者がチャットリプレイをオフにしている場合、コメント取得はできません。"
+        )
+    # メンバー限定など、通常公開でない
+    if '"isPrivate":true' in html or '"isUnlisted":true' in html:
+        return True, (
+            "この動画は限定公開・非公開・メンバー限定のようです。\n"
+            "通常公開の動画 URL でお試しください。"
+        )
+    # その他
+    return False, ""
+
+
 def download_chat(url, progress_path=None, out_path=None):
-    """YouTubeチャットログをcsvとして保存する"""
+    """YouTubeチャットログをcsvとして保存する。
+
+    取得不可の動画（ライブ配信中・リプレイ無効・限定公開等）の場合は
+    `ChatNotAvailableError` を発生させる。
+    """
     print(f"▶ Fetching chat: {url}")
 
     html = _fetch_html(url)
@@ -233,14 +272,29 @@ def download_chat(url, progress_path=None, out_path=None):
         duration = int(dur_m.group(1))
     print(f"📏 動画の長さ: {duration} 秒")
 
+    # 取得不可の動画タイプを早期判別
+    is_unavailable, msg = _detect_unavailable_reason(html)
+    if is_unavailable:
+        raise ChatNotAvailableError("CHAT_NOT_AVAILABLE", msg)
+
     api_key, version, yid = _extract_params(html)
     if not yid:
-        print("❌ ytInitialData が見つかりません。")
-        return
+        raise ChatNotAvailableError(
+            "NO_YT_INITIAL_DATA",
+            "動画情報の取得に失敗しました。\n"
+            "URL が正しいか、動画が削除されていないかご確認ください。",
+        )
     continuation = _find_continuation(yid)
     if not continuation:
-        print("❌ continuation が見つかりません。")
-        return
+        raise ChatNotAvailableError(
+            "NO_CONTINUATION",
+            "この動画ではチャット（コメント）を取得できませんでした。\n\n"
+            "考えられる原因:\n"
+            "  • ライブ配信中で、まだチャットリプレイが生成されていない\n"
+            "  • チャットリプレイが投稿者により無効化されている\n"
+            "  • コメント数が極端に少ない / そもそもコメントなしの動画\n\n"
+            "ライブ配信のアーカイブの場合は、配信終了から数時間待って再度お試しください。",
+        )
 
     out = out_path if out_path else "chatlog.csv"
     open(out, "w", encoding="utf-8").close()
@@ -589,6 +643,9 @@ def download_video_and_chat(url, base_output_folder, progress_path):
             print(f"[INFO] チャットログを保存: {dst_csv}", flush=True)
         else:
             print("[WARN] chatlog.csv が見つかりません。", flush=True)
+    except ChatNotAvailableError:
+        # チャット取得不可は main() でユーザー向けメッセージ表示するために再 raise
+        raise
     except Exception as e:
         print(f"[ERROR] youtubeChatdl失敗: {e}", flush=True)
 
@@ -707,6 +764,13 @@ def main():
                 print(f"[WARN] YouTube ロジックで処理を試みますが、失敗する可能性があります", flush=True)
             print(f"[INFO] YouTube URL として処理: {video_url}", flush=True)
             download_video_and_chat(video_url, base_output_folder, progress_path)
+    except ChatNotAvailableError as e:
+        # チャット取得不可（ライブ配信中・リプレイ無効・限定公開など）→ exit code 2 で終了
+        # フロントは progress.json の message をそのままユーザーに表示する
+        safe_write_json(progress_path, {"progress": -1, "message": e.user_message})
+        print(f"[CHAT_NOT_AVAILABLE] {e}", flush=True)
+        print(e.user_message, flush=True)
+        sys.exit(2)
     except Exception as e:
         safe_write_json(progress_path, {"progress": -1, "message": f"エラー: {e}"})
         print("エラー:", e, flush=True)
