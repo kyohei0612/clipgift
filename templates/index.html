@@ -132,9 +132,9 @@
       .shell {
         position: relative;
         z-index: 1;
-        max-width: 720px;
+        max-width: 800px;
         margin: 0 auto;
-        padding: 0 24px 80px;
+        padding: 0 24px 96px;
       }
 
       /* ── トップバー ── */
@@ -142,19 +142,23 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 20px 0 0;
+        padding: 24px 0 8px;
       }
 
       .logo {
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 12px;
+      }
+
+      .logo img {
+        filter: drop-shadow(0 4px 12px rgba(39, 154, 217, 0.35));
       }
 
       .logo-text {
-        font-size: 18px;
-        font-weight: 800;
-        letter-spacing: -0.5px;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
         color: var(--text);
       }
       .logo-text span { color: var(--accent); }
@@ -162,74 +166,99 @@
       .topbar-right {
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 10px;
       }
 
       #version-badge {
         font-family: var(--mono);
-        font-size: 10px;
+        font-size: 11px;
         color: var(--muted);
-        letter-spacing: 1px;
+        letter-spacing: 0.5px;
+        padding: 4px 10px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: var(--surface);
       }
 
       .btn-ghost {
-        font-family: var(--mono);
-        font-size: 10px;
-        color: var(--muted);
-        background: transparent;
+        font-family: var(--sans);
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 4px;
-        padding: 4px 10px;
+        border-radius: 999px;
+        padding: 7px 14px;
         cursor: pointer;
-        transition: all .2s;
-        letter-spacing: .5px;
+        transition: var(--transition);
+        letter-spacing: 0.02em;
       }
-      .btn-ghost:hover { color: var(--accent); border-color: var(--accent); }
+      .btn-ghost:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+        background: var(--accent-soft);
+      }
 
       /* ── ヒーロー ── */
       .hero {
-        padding: 60px 0 48px;
-        animation: fadeUp .8s ease both;
+        padding: 72px 0 56px;
+        animation: fadeUp .7s ease both;
       }
 
       .hero-label {
-        font-family: var(--mono);
-        font-size: 11px;
-        color: var(--accent);
-        letter-spacing: 3px;
-        text-transform: uppercase;
-        margin-bottom: 16px;
-        display: flex;
+        display: inline-flex;
         align-items: center;
         gap: 8px;
+        font-family: var(--font-mono, 'JetBrains Mono', monospace);
+        font-size: 11px;
+        color: var(--accent);
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        font-weight: 700;
+        padding: 6px 14px;
+        background: var(--accent-soft);
+        border: 1px solid rgba(39, 154, 217, 0.28);
+        border-radius: 999px;
+        margin-bottom: 20px;
       }
       .hero-label::before {
         content: '';
-        display: block;
-        width: 24px;
-        height: 1px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
         background: var(--accent);
+        box-shadow: 0 0 12px var(--accent);
+        animation: pulse 2s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.6; transform: scale(0.85); }
       }
 
       .hero h1 {
-        font-size: clamp(32px, 6vw, 52px);
+        font-size: clamp(36px, 6.5vw, 60px);
         font-weight: 800;
-        line-height: 1.05;
-        letter-spacing: -2px;
-        margin-bottom: 16px;
+        line-height: 1.02;
+        letter-spacing: -0.04em;
+        margin-bottom: 20px;
+        color: var(--text);
       }
 
       .hero h1 em {
         font-style: normal;
+        background: linear-gradient(135deg, var(--brand-400), var(--brand-500), var(--brand-600));
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
         color: transparent;
-        -webkit-text-stroke: 1px var(--accent);
+        font-weight: 800;
       }
 
       .hero-sub {
-        font-size: 14px;
-        color: var(--muted);
+        font-size: 15px;
+        color: var(--text-secondary);
         line-height: 1.7;
-        max-width: 440px;
+        max-width: 480px;
       }
 
       /* ── カード ── */
@@ -247,49 +276,51 @@
 
       .card-label {
         font-family: var(--mono);
-        font-size: 10px;
-        color: var(--muted);
-        letter-spacing: 2px;
+        font-size: 11px;
+        color: var(--text-secondary);
+        letter-spacing: 0.15em;
         text-transform: uppercase;
-        margin-bottom: 18px;
-        display: flex;
+        margin-bottom: 20px;
+        display: inline-flex;
         align-items: center;
-        gap: 8px;
+        gap: 10px;
+        font-weight: 700;
       }
       .card-label::before {
         content: '';
         display: block;
-        width: 4px;
-        height: 4px;
-        background: var(--accent);
+        width: 8px;
+        height: 8px;
         border-radius: 50%;
+        background: linear-gradient(135deg, var(--brand-400), var(--brand-600));
+        box-shadow: 0 0 12px rgba(39, 154, 217, 0.5);
       }
 
       /* ── URL入力 ── */
       .input-wrap {
         display: flex;
-        gap: 4px;
+        gap: 8px;
         align-items: stretch;
       }
 
       .url-input {
         flex: 1;
-        background: rgba(255,255,255,.04);
+        background: var(--surface2);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-sm);
         color: var(--text);
         font-family: var(--mono);
-        font-size: 12px;
-        padding: 14px 16px;
+        font-size: 13px;
+        padding: 14px 18px;
         outline: none;
-        transition: all .2s;
-        letter-spacing: .5px;
+        transition: var(--transition);
+        letter-spacing: 0;
       }
       .url-input::placeholder { color: var(--muted); }
       .url-input:focus {
         border-color: var(--accent);
-        background: rgba(39, 154, 217,.04);
-        box-shadow: 0 0 0 3px rgba(39, 154, 217,.08);
+        background: var(--surface);
+        box-shadow: 0 0 0 3px var(--accent-soft);
       }
 
       .btn-primary {
@@ -326,20 +357,24 @@
       .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
 
       .btn-secondary {
-        background: transparent;
+        background: var(--surface);
         color: var(--text);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: var(--radius-sm);
         font-family: var(--sans);
         font-size: 13px;
-        font-weight: 600;
-        padding: 12px 20px;
+        font-weight: 500;
+        padding: 12px 22px;
         cursor: pointer;
-        transition: all .2s;
+        transition: var(--transition);
         white-space: nowrap;
       }
-      .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
-      .btn-secondary:disabled { opacity: .3; cursor: not-allowed; }
+      .btn-secondary:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: var(--accent-soft);
+      }
+      .btn-secondary:disabled { opacity: .4; cursor: not-allowed; }
 
       /* ── 進捗 ── */
       .progress-wrap {
@@ -370,30 +405,31 @@
       }
 
       .progress-track {
-        height: 3px;
+        height: 4px;
         background: var(--border);
-        border-radius: 99px;
+        border-radius: 999px;
         overflow: hidden;
       }
 
       .progress-fill {
         height: 100%;
-        background: linear-gradient(90deg, var(--accent), var(--accent2));
-        border-radius: 99px;
+        background: linear-gradient(90deg, var(--brand-400), var(--brand-500), var(--brand-600));
+        border-radius: 999px;
         width: 0%;
-        transition: width .5s cubic-bezier(.4,0,.2,1);
+        transition: width .4s cubic-bezier(.4,0,.2,1);
         position: relative;
+        box-shadow: 0 0 16px rgba(39, 154, 217, 0.5);
       }
       .progress-fill::after {
         content: '';
         position: absolute;
         right: 0;
-        top: -4px;
-        width: 11px;
-        height: 11px;
+        top: -3px;
+        width: 10px;
+        height: 10px;
         background: var(--accent);
         border-radius: 50%;
-        box-shadow: 0 0 8px var(--accent);
+        box-shadow: 0 0 12px var(--accent), 0 0 24px rgba(39, 154, 217, 0.5);
       }
 
       .progress-msg {
@@ -408,16 +444,18 @@
       .status-pill {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        font-family: var(--mono);
-        font-size: 11px;
-        padding: 4px 10px;
-        border-radius: 99px;
-        margin-top: 12px;
+        gap: 8px;
+        font-family: var(--sans);
+        font-size: 12px;
+        font-weight: 500;
+        padding: 5px 14px;
+        border-radius: 999px;
+        margin-top: 14px;
+        letter-spacing: 0.01em;
       }
-      .status-pill.success { background: rgba(34,197,94,.1); color: var(--success); border: 1px solid rgba(34,197,94,.2); }
-      .status-pill.error   { background: rgba(239,68,68,.1);  color: var(--error);   border: 1px solid rgba(239,68,68,.2); }
-      .status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+      .status-pill.success { background: rgba(16,185,129,.12); color: var(--success); border: 1px solid rgba(16,185,129,.28); }
+      .status-pill.error   { background: rgba(239,68,68,.12);  color: var(--error);   border: 1px solid rgba(239,68,68,.28); }
+      .status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
 
       /* ── ログ ── */
       .log-wrap { margin-top: 16px; display: none; }
@@ -548,7 +586,7 @@
       <!-- トップバー -->
       <div class="topbar">
         <div class="logo">
-          <img src="/static/ClipGiftLog.png" alt="ClipGift" style="height:36px;width:36px;object-fit:contain;">
+          <img src="/static/ClipGiftLog.png" alt="ClipGift" style="height:44px;width:44px;object-fit:contain;">
           <div class="logo-text">Clip<span>Gift</span></div>
         </div>
         <div class="topbar-right">
