@@ -870,15 +870,11 @@
               clearInterval(timer);
               icon.textContent = "✓";
               title.textContent = "更新しました";
-              msg.textContent = "3 秒後に自動で再起動します...";
-              spinner.style.display = "none";
-              // 自動再起動 → ブラウザは新サーバーへ自動再接続
-              setTimeout(() => {
-                fetch("/api/restart", { method: "POST" }).catch(() => {});
-                msg.textContent = "再起動中... 数秒お待ちください";
-                // 5 秒後にページ再読込（新サーバー起動済み想定）
-                setTimeout(() => location.reload(), 5000);
-              }, 3000);
+              msg.textContent = "再起動中...";
+              spinner.style.display = "block";
+              // 即時再起動 → 数秒で新サーバーが立ち上がる
+              fetch("/api/restart", { method: "POST" }).catch(() => {});
+              setTimeout(() => location.reload(), 3000);
             } else if (state.status === "error") {
               clearInterval(timer); icon.textContent = "✕"; title.textContent = "更新に失敗しました";
               spinner.style.display = "none"; skipBtn.style.display = "inline-block";

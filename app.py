@@ -182,15 +182,18 @@ def restart_route():
 
     def _spawn_restart():
         # まずレスポンスを返すための短い遅延
-        time.sleep(0.3)
+        time.sleep(0.2)
         try:
             python_exe = get_python_exe()
             app_py = os.path.join(BASE_DIR, "app.py")
-            # Windows: timeout で 3 秒待ってから新プロセスを start で切り離して起動
-            # 自プロセスが完全に exit するまで port 5000 が空かない & 多重起動防止に引っかかる
+            port = config.SERVER_PORT
+            # 自プロセスは os._exit 直後で port 解放されるはずだが、
+            # 念のため: 1 秒待機 → port 5000 を握ってる PID を taskkill → 新規起動
+            # これで多重起動防止に引っかからず確実に立ち上がる
             bat_lines = [
                 "@echo off",
-                "timeout /t 3 /nobreak > nul",
+                "timeout /t 1 /nobreak > nul",
+                f'for /f "tokens=5" %%a in (\'netstat -ano ^| findstr ":{port}.*LISTENING"\') do taskkill /F /PID %%a >nul 2>&1',
                 f'start "" /b "{python_exe}" "{app_py}"',
                 "exit /b 0",
             ]
@@ -206,8 +209,8 @@ def restart_route():
             )
         except Exception as e:
             logger.exception("再起動 spawn 失敗: %s", e)
-        # spawn 後に自プロセスを exit（port 解放）
-        time.sleep(0.5)
+        # spawn 後に自プロセスを即 exit（port 解放）
+        time.sleep(0.3)
         os._exit(0)
 
     threading.Thread(target=_spawn_restart, daemon=True).start()
