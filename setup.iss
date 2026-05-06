@@ -1,5 +1,5 @@
 #define MyAppName "ClipGift"
-#define MyAppVersion "1.0.49"
+#define MyAppVersion "1.0.50"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
@@ -24,6 +24,13 @@ SetupIconFile={#SourceDir}\installer_assets\ClipGiftLog.ico
 PrivilegesRequired=lowest
 CloseApplications=force
 RestartApplications=no
+
+; ライセンス credential の保管場所について（仕様 Q1=B）
+;   credential は %APPDATA%\Roaming\ClipGift\license.dat に保存される。
+;   インストール先は {localappdata}\ClipGift で別ディレクトリのため、
+;   アンインストール時に Inno Setup が削除する範囲には含まれない。
+;   → 再インストール時に同一マシンであれば自動再認証される（Q1=B 仕様）。
+;   credential を本当に消したい場合はユーザーが手動で APPDATA\Roaming\ClipGift を削除する。
 
 [Languages]
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"

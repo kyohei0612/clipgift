@@ -74,8 +74,28 @@ ACTIVATION_HTML = """<!DOCTYPE html>
             font-weight: 600;
             cursor: pointer;
         }
-        .activate-btn:hover { background: #0056d6; }
-        .activate-btn:disabled { background: #c7c7cc; cursor: wait; }
+        .activate-btn:hover:not(:disabled) { background: #0056d6; }
+        .activate-btn:disabled { background: #c7c7cc; cursor: not-allowed; }
+        .activate-btn .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            margin-right: 8px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .key-status {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #8e8e93;
+            min-height: 18px;
+        }
+        .key-status.valid { color: #28a745; }
+        .key-status.invalid { color: #d70015; }
         .error {
             color: #d70015;
             background: #ffebee;
@@ -115,13 +135,16 @@ ACTIVATION_HTML = """<!DOCTYPE html>
         </div>
         <input type="text" id="key" class="key-input"
                placeholder="CGFT-XXX-XXXX-XXXX-XXXX"
-               autocomplete="off" autocapitalize="characters">
-        <button id="activate" class="activate-btn">アクティベーションする</button>
+               autocomplete="off" autocapitalize="characters"
+               maxlength="23">
+        <div id="keyStatus" class="key-status">キーの形式: CGFT-プラン-XXXX-XXXX-XXXX</div>
+        <button id="activate" class="activate-btn" disabled>アクティベーションする</button>
         <div id="error" class="error"></div>
         <div id="success" class="success"></div>
         <div class="footer">
-            購入したのにキーが届いていない場合は<br>
-            <a href="mailto:support@clipgift.app">support@clipgift.app</a> までご連絡ください
+            購入したのにキーが届いていない場合、または問題が解決しない場合は<br>
+            <a href="mailto:support@clipgift.app?subject=ClipGift%20%E3%82%A2%E3%82%AF%E3%83%86%E3%82%A3%E3%83%99%E3%83%BC%E3%82%B7%E3%83%A7%E3%83%B3%E3%81%AB%E3%81%A4%E3%81%84%E3%81%A6">support@clipgift.app</a> までご連絡ください<br>
+            <span style="color:#c7c7cc;">※ 平日営業日 24 時間以内に返信いたします</span>
         </div>
     </div>
     <script>
@@ -129,6 +152,11 @@ ACTIVATION_HTML = """<!DOCTYPE html>
         const button = document.getElementById('activate');
         const errorBox = document.getElementById('error');
         const successBox = document.getElementById('success');
+        const keyStatus = document.getElementById('keyStatus');
+
+        // サーバー側 key_validator.py と同じセット
+        const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        const VALID_PLANS = ['LITE', 'STD', 'EXT'];
 
         function showError(msg) {
             errorBox.textContent = msg;
@@ -141,6 +169,65 @@ ACTIVATION_HTML = """<!DOCTYPE html>
             errorBox.classList.remove('show');
         }
 
+        // 自動ハイフン挿入 + 大文字化 + 不正文字除去
+        // ペースト時の "CGFTSTDABCDEFGHIJKL" のような形式も整形する
+        function formatKey(raw) {
+            const cleaned = raw.toUpperCase()
+                .replace(/[^A-Z0-9]/g, '');  // ハイフン以外の英数を抽出
+            // 期待形式: CGFT-PLAN-XXXX-XXXX-XXXX
+            // 区切り位置: 4, 4+3, 4+3+4, 4+3+4+4
+            const parts = [];
+            if (cleaned.length > 0) parts.push(cleaned.slice(0, 4));
+            if (cleaned.length > 4) parts.push(cleaned.slice(4, 7));
+            if (cleaned.length > 7) parts.push(cleaned.slice(7, 11));
+            if (cleaned.length > 11) parts.push(cleaned.slice(11, 15));
+            if (cleaned.length > 15) parts.push(cleaned.slice(15, 19));
+            return parts.join('-');
+        }
+
+        // キー形式の妥当性検証（フロント側ヒント、確定はサーバー）
+        function validateKeyFormat(key) {
+            const parts = key.split('-');
+            if (parts.length !== 5) return { ok: false, reason: 'パーツ数が違います' };
+            const [pfx, plan, g1, g2, sig] = parts;
+            if (pfx !== 'CGFT') return { ok: false, reason: 'プレフィックスは CGFT です' };
+            if (!VALID_PLANS.includes(plan)) return { ok: false, reason: 'プラン部分は LITE / STD / EXT のいずれかです' };
+            if (g1.length !== 4 || g2.length !== 4 || sig.length !== 4) return { ok: false, reason: '各グループは 4 文字です' };
+            for (const ch of (g1 + g2 + sig)) {
+                if (!ALPHABET.includes(ch)) return { ok: false, reason: '使えない文字が含まれています' };
+            }
+            return { ok: true, plan };
+        }
+
+        function updateUiForKey() {
+            const formatted = formatKey(keyInput.value);
+            // カーソル位置維持のため、変化があったときだけ反映
+            if (keyInput.value !== formatted) {
+                keyInput.value = formatted;
+            }
+            const validation = validateKeyFormat(formatted);
+            if (formatted.length === 0) {
+                keyStatus.textContent = 'キーの形式: CGFT-プラン-XXXX-XXXX-XXXX';
+                keyStatus.className = 'key-status';
+                button.disabled = true;
+            } else if (validation.ok) {
+                const planLabel = { LITE: 'ライト', STD: 'スタンダード', EXT: '拡張' }[validation.plan] || validation.plan;
+                keyStatus.textContent = `✓ 形式 OK（${planLabel}プラン）`;
+                keyStatus.className = 'key-status valid';
+                button.disabled = false;
+            } else {
+                keyStatus.textContent = `形式を確認してください: ${validation.reason}`;
+                keyStatus.className = 'key-status invalid';
+                button.disabled = true;
+            }
+        }
+
+        keyInput.addEventListener('input', updateUiForKey);
+        keyInput.addEventListener('paste', () => {
+            // paste は input より前に発火するブラウザがあるので、次フレームで処理
+            setTimeout(updateUiForKey, 0);
+        });
+
         button.addEventListener('click', async () => {
             const key = keyInput.value.trim().toUpperCase();
             if (!key) {
@@ -148,7 +235,8 @@ ACTIVATION_HTML = """<!DOCTYPE html>
                 return;
             }
             button.disabled = true;
-            button.textContent = '認証中...';
+            button.innerHTML = '<span class="spinner"></span>サーバーに問い合わせ中...';
+            errorBox.classList.remove('show');
             try {
                 const resp = await fetch('/api/activate', {
                     method: 'POST',
@@ -157,23 +245,29 @@ ACTIVATION_HTML = """<!DOCTYPE html>
                 });
                 const data = await resp.json();
                 if (resp.ok) {
-                    showSuccess('認証成功！3 秒後にアプリが起動します...');
+                    showSuccess('認証が完了いたしました。3 秒後に自動でアプリが起動いたします...');
+                    button.innerHTML = '✓ 認証完了';
                     setTimeout(() => window.close(), 3000);
                 } else {
-                    showError(data.message + (data.hint ? '\\n\\n' + data.hint : ''));
+                    const msg = (data.message || '認証に失敗いたしました') +
+                        (data.hint ? '\\n\\n' + data.hint : '');
+                    showError(msg);
                     button.disabled = false;
                     button.textContent = 'アクティベーションする';
                 }
             } catch (e) {
-                showError('通信エラー: ' + e.message);
+                showError('サーバーへの接続に失敗いたしました。インターネット接続をご確認のうえ、再度お試しください。\\n（詳細: ' + e.message + '）');
                 button.disabled = false;
                 button.textContent = 'アクティベーションする';
             }
         });
 
         keyInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') button.click();
+            if (e.key === 'Enter' && !button.disabled) button.click();
         });
+
+        // 初期表示
+        updateUiForKey();
     </script>
 </body>
 </html>
