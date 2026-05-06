@@ -3,7 +3,10 @@
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
-#define SourceDir "C:\Users\kyohei\testsever"
+; SourcePath は Inno Setup の組込みマクロ（.iss ファイルのあるディレクトリ、末尾 \ 付き）
+; Copy() で末尾 \ を除去 → 既存の {#SourceDir}\path 形式と互換
+; これでプロジェクトフォルダ名 / 配置場所が変わっても自動追従する
+#define SourceDir Copy(SourcePath, 1, Len(SourcePath) - 1)
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}

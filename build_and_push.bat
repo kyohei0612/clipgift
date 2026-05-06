@@ -1,6 +1,7 @@
 @echo off
 setlocal
-cd /d "C:\Users\kyohei\testsever"
+rem スクリプトと同じディレクトリへ移動（フォルダ名 / 配置場所に依存しない）
+cd /d "%~dp0"
 
 rem ---------------------------------------------------------
 rem  Argument parsing
@@ -70,7 +71,7 @@ if "%BUILD_ONLY%"=="1" (
 ) else (
     echo [4/5] Building installer...
 )
-"%ISCC%" "C:\Users\kyohei\testsever\setup.iss"
+"%ISCC%" "%~dp0setup.iss"
 if errorlevel 1 ( echo ERROR: build failed & pause & exit /b 1 )
 
 if "%BUILD_ONLY%"=="1" (
@@ -78,6 +79,6 @@ if "%BUILD_ONLY%"=="1" (
 ) else (
     echo [5/5] Done!
 )
-echo Output: C:\Users\kyohei\testsever\installer_output\YouTubeClipTool_Setup.exe
+echo Output: %~dp0installer_output\YouTubeClipTool_Setup.exe
 pause
 endlocal
