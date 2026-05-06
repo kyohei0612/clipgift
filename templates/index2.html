@@ -356,6 +356,7 @@ ul li { margin-bottom: 8px; }
             <span id="licenseSupportRemaining" style="font-weight:400;font-size:11px;opacity:0.85;"></span>
           </div>
           <button id="themeToggle">ライトモード</button>
+          <button id="appCloseBtn" type="button" title="アプリを終了" style="padding:6px 14px;background:transparent;border:1px solid #d70015;color:#d70015;border-radius:6px;cursor:pointer;font-size:13px;">✕ 閉じる</button>
         </div>
       </div>
 
@@ -776,6 +777,23 @@ console.log("✅ DOMContentLoaded後の初期化完了！");
 if (cancelBtn) {
   cancelBtn.disabled = true;
 }
+
+// === 閉じるボタン（明示的にサーバー終了）===
+(function initAppCloseButton() {
+  const btn = document.getElementById("appCloseBtn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (!confirm("クリップギフトを閉じますか？\n（処理中の作業は中断されます）")) return;
+    btn.disabled = true;
+    btn.textContent = "終了中...";
+    try {
+      await fetch("/api/shutdown", { method: "POST" });
+    } catch (e) {
+      // サーバー終了で接続切れるのは想定内
+    }
+    document.body.innerHTML = "<div style='padding:80px;text-align:center;font-size:18px;color:#888;'>クリップギフトを終了しました。<br>このタブは閉じて構いません。</div>";
+  });
+})();
 
 // === ライセンス情報の取得・表示 ===
 (async function initLicenseDisplay() {

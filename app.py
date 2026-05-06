@@ -131,42 +131,43 @@ _is_downloading = False  # ダウンロード中フラグ
 _is_downloading_lock = threading.Lock()
 
 def _heartbeat_watchdog():
-    """ハートビートが途絶えたらサーバーを終了する"""
-    while True:
-        time.sleep(config.WATCHDOG_INTERVAL_SEC)
-        with _heartbeat_lock:
-            elapsed = time.time() - _last_heartbeat
-        # 更新中はwatchdogを無効化
-        try:
-            state = auto_update.get_update_state()
-            if state.get("status") == "updating":
-                continue
-        except Exception:
-            pass
-        # ダウンロード中はwatchdogを無効化
-        with _is_downloading_lock:
-            if _is_downloading:
-                continue
-        # クリップ処理中はwatchdogを無効化（フラグをロック内で原子的にチェック）
-        with _state_lock:
-            if _is_processing:
-                continue
-        if elapsed > config.HEARTBEAT_TIMEOUT_SEC:
-            logger.info("💤 ブラウザが閉じられました。サーバーを終了します。")
-            os._exit(0)
+    """
+    ハートビート監視（自動終了は廃止、ユーザー明示の閉じる操作のみで終了）
 
-# watchdogスレッドをデーモンとして起動（起動直後のfalse positiveを防ぐため遅延）
-def _start_watchdog_delayed():
-    time.sleep(config.WATCHDOG_START_DELAY_SEC)
-    _heartbeat_watchdog()
+    ハートビートのタイムアウトでアプリを勝手に終了させない方針。
+    ブラウザを閉じてもサーバーは起動したまま、ユーザーが明示的に
+    「閉じる」ボタン → 確認ダイアログ → /api/shutdown を叩いた時のみ終了。
 
-_watchdog_thread = threading.Thread(target=_start_watchdog_delayed, daemon=True)
-_watchdog_thread.start()
+    （historic: 以前は HEARTBEAT_TIMEOUT_SEC 経過で os._exit(0) してたが、
+       長時間使用中に勝手に落ちるので 2026-05-06 廃止）
+    """
+    return  # ループ自体不要、廃止
+
+
+# watchdog スレッドは起動しない（自動終了廃止のため）
+# 念のため関数は残してあるが、呼び出さない
 
 
 @app.route('/favicon.ico')
 def favicon():
     return '', 204
+
+
+@app.route("/api/shutdown", methods=["POST"])
+def shutdown_route():
+    """
+    ユーザー明示のサーバー終了 API。
+
+    UI の「閉じる」ボタン → 確認ダイアログ → ここを叩く → サーバー停止。
+    勝手な watchdog 終了はないので、これだけが正規の停止経路。
+    """
+    logger.info("👋 ユーザー操作によるサーバー終了")
+    # レスポンスを返してから少し遅延して終了
+    def _delayed_exit():
+        time.sleep(0.5)
+        os._exit(0)
+    threading.Thread(target=_delayed_exit, daemon=True).start()
+    return jsonify({"success": True, "message": "サーバーを終了します"})
 
 
 @app.route("/heartbeat", methods=["POST"])

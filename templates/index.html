@@ -471,6 +471,7 @@
           </div>
           <div id="version-badge">v-.-.-</div>
           <button class="btn-ghost" onclick="manualCheckUpdate()">UPDATE CHECK</button>
+          <button id="appCloseBtn" type="button" title="アプリを終了" style="padding:6px 14px;background:transparent;border:1px solid #d70015;color:#d70015;border-radius:6px;cursor:pointer;font-size:12px;">✕ 閉じる</button>
         </div>
       </div>
 
@@ -753,6 +754,23 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       fetch("/reset-progress", { method: "POST" }).catch(() => {});
+    });
+
+    // === 閉じるボタン（明示的にサーバー終了）===
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.getElementById("appCloseBtn");
+      if (!btn) return;
+      btn.addEventListener("click", async () => {
+        if (!confirm("クリップギフトを閉じますか？\n（処理中の作業は中断されます）")) return;
+        btn.disabled = true;
+        btn.textContent = "終了中...";
+        try {
+          await fetch("/api/shutdown", { method: "POST" });
+        } catch (e) {
+          // サーバー終了で接続切れるのは想定内
+        }
+        document.body.innerHTML = "<div style='padding:80px;text-align:center;font-size:18px;color:#888;'>クリップギフトを終了しました。<br>このタブは閉じて構いません。</div>";
+      });
     });
 
     // === ライセンスバッジ表示（簡易版、index.html はクリック非対応） ===
