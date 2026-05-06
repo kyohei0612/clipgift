@@ -1,6 +1,7 @@
 """
 アプリ共通のファイルパス定数。他モジュールはここから import する。
 """
+
 import os
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))

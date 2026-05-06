@@ -71,7 +71,7 @@ curl https://clipgift-license.<account>.workers.dev/health
 curl -X POST https://clipgift-license.<account>.workers.dev/admin/issue `
   -H "Authorization: Bearer YOUR_ADMIN_TOKEN" `
   -H "Content-Type: application/json" `
-  -d '{"plan":"std","buyer_email":"test@example.com","reason":"test"}'
+  -d '{"plan":"single","buyer_email":"test@example.com","reason":"test"}'
 ```
 
 ## ファイル構成

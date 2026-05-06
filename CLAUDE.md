@@ -8,6 +8,21 @@ Claude Code / AI アシスタント向けのプロジェクトコンテキスト
 
 Windows デスクトップで動く Flask 製のクリップ作成ツール。`python app.py` で `127.0.0.1:5000` にローカルサーバーを立て、ブラウザ UI から操作する構成。エンドユーザーは Inno Setup 製インストーラー経由で利用する。
 
+## 販売モデル（Phase 1 = 2026-05-22 ローンチ予定）
+
+**Phase 1（〜売上 10 件）**: BOOTH で買い切り 1 プラン販売
+- 通常 9,800 円 / 先着 10 名限定 6,980 円
+- アップデート無料（10 名全員、Phase 1 期間中）
+- ライセンス認証: Cloudflare Workers（`clipgift-license.kyohei0612.workers.dev`）、内部プラン名は `single`
+- 後方互換: 旧 `LITE` / `STD` / `EXT` キーも `single` として受理
+
+**Phase 2（10 件達成後）**: 即サーバー移行 + Stripe + サブスク
+- Tauri / Electron でクロスプラットフォームデスクトップアプリ化（Mac 対応）
+- 機能盛り盛り、本命展開
+- 既存買い切り客は買い切りのまま継続利用可
+
+詳細は `.company/secretary/notes/2026-05-07-decisions.md` 参照（マーケ部・販売戦略の意思決定記録）。
+
 ---
 
 ## アーキテクチャ概要

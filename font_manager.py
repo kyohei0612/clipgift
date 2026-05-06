@@ -3,6 +3,7 @@
 Windows のシステム/ユーザーフォントフォルダを探索し、
 日本語名が取得できるものだけを返す。
 """
+
 import os
 import json
 import logging
@@ -27,6 +28,7 @@ def get_font_japanese_name(path):
     """フォントファイルから日本語表示名を取得する。日本語名がなければ None。"""
     try:
         from fontTools.ttLib import TTFont
+
         font = TTFont(path, fontNumber=0)
         name_table = font["name"]
         # nameID=4: Full name, nameID=1: Family name
@@ -34,7 +36,11 @@ def get_font_japanese_name(path):
         for target_id in (4, 1):
             # Windows日本語(platformID=3, langID=0x411)
             for record in name_table.names:
-                if record.nameID == target_id and record.platformID == 3 and record.langID == 0x411:
+                if (
+                    record.nameID == target_id
+                    and record.platformID == 3
+                    and record.langID == 0x411
+                ):
                     try:
                         name = record.toUnicode()
                         if name:
@@ -43,7 +49,11 @@ def get_font_japanese_name(path):
                         pass
             # Mac日本語(platformID=1, langID=11)
             for record in name_table.names:
-                if record.nameID == target_id and record.platformID == 1 and record.langID == 11:
+                if (
+                    record.nameID == target_id
+                    and record.platformID == 1
+                    and record.langID == 11
+                ):
                     try:
                         name = record.toUnicode()
                         if name:
@@ -66,7 +76,9 @@ def list_fonts():
                 path = os.path.join(d, fname)
                 display_name = get_font_japanese_name(path)
                 if display_name:  # 日本語名があるもののみ
-                    fonts.append({"name": fname, "display_name": display_name, "path": path})
+                    fonts.append(
+                        {"name": fname, "display_name": display_name, "path": path}
+                    )
     # 重複除去（ファイル名優先）
     seen = set()
     unique = []

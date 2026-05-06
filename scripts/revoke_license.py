@@ -21,14 +21,10 @@ DEFAULT_SERVER_URL = "https://clipgift-license.kyohei0612.workers.dev"
 def main() -> int:
     parser = argparse.ArgumentParser(description="ライセンスキーを失効する")
     parser.add_argument("--key", required=True, help="失効するライセンスキー")
-    parser.add_argument(
-        "--reason", required=True, help="失効理由（記録用、必須）"
-    )
+    parser.add_argument("--reason", required=True, help="失効理由（記録用、必須）")
     parser.add_argument(
         "--server-url",
-        default=os.environ.get(
-            "CLIPGIFT_LICENSE_SERVER_URL", DEFAULT_SERVER_URL
-        ),
+        default=os.environ.get("CLIPGIFT_LICENSE_SERVER_URL", DEFAULT_SERVER_URL),
     )
     args = parser.parse_args()
 

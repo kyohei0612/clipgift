@@ -7,6 +7,7 @@
 - start_threshold / end_threshold: 10秒窓あたりのコメント数の閾値
 - clip_offset: ヒット開始から遡って切り出す秒数
 """
+
 import re
 import logging
 import unicodedata
@@ -50,7 +51,9 @@ def normalize_comment(comment):
     return comment.lower()
 
 
-def analyze_chat_single_keyword(lines, keyword, start_threshold, end_threshold, clip_offset):
+def analyze_chat_single_keyword(
+    lines, keyword, start_threshold, end_threshold, clip_offset
+):
     """単一キーワードについてクリップ候補を検出する。"""
     logger.info("🎯 キーワード: %s", keyword)
     normalized_kw = normalize_comment(keyword)
@@ -123,7 +126,14 @@ def merge_clips(clips):
     return merged
 
 
-def analyze_chat(lines, keywords, start_threshold, end_threshold, clip_offset, video_duration_sec=None):
+def analyze_chat(
+    lines,
+    keywords,
+    start_threshold,
+    end_threshold,
+    clip_offset,
+    video_duration_sec=None,
+):
     """
     複数キーワードで解析し、マージ済みのクリップ一覧を返す。
     video_duration_sec を渡すと、動画長を超える end をクランプする。
@@ -137,7 +147,9 @@ def analyze_chat(lines, keywords, start_threshold, end_threshold, clip_offset, v
     all_clips = []
     for kw in keywords:
         all_clips.extend(
-            analyze_chat_single_keyword(lines, kw, start_threshold, end_threshold, clip_offset)
+            analyze_chat_single_keyword(
+                lines, kw, start_threshold, end_threshold, clip_offset
+            )
         )
 
     merged = merge_clips(all_clips)

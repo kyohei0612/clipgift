@@ -771,6 +771,42 @@ def main():
         print(f"[CHAT_NOT_AVAILABLE] {e}", flush=True)
         print(e.user_message, flush=True)
         sys.exit(2)
+    except (RuntimeError, ValueError) as e:
+        # Twitch 系のエラーを親切メッセージに変換
+        msg = str(e)
+        user_message = None
+        if "VOD アクセストークン取得失敗" in msg or "削除済み" in msg:
+            user_message = (
+                "Twitch VOD の取得に失敗しました。\n\n"
+                "考えられる原因:\n"
+                "  • VOD が削除されている\n"
+                "  • 限定公開 / 加入者（サブスクライバー）限定の VOD\n"
+                "  • チャンネル所有者により非公開設定にされた\n\n"
+                "別の通常公開の VOD URL でお試しください。"
+            )
+        elif "Twitch VOD URL ではありません" in msg:
+            user_message = (
+                "URL の形式が正しくありません。\n\n"
+                "Twitch VOD は次のような URL 形式です:\n"
+                "  https://www.twitch.tv/videos/123456789\n\n"
+                "ライブ配信中の URL（twitch.tv/{channel}）は対象外です。"
+            )
+        elif "セグメント" in msg or "playlist" in msg.lower() or "M3U8" in msg:
+            user_message = (
+                "Twitch VOD の動画ダウンロードに失敗しました。\n\n"
+                "考えられる原因:\n"
+                "  • Twitch 側の一時的な障害\n"
+                "  • ネットワーク接続の不安定\n"
+                "  • VOD の動画データが部分的に欠損\n\n"
+                "数分後に再度お試しください。"
+            )
+        if user_message:
+            safe_write_json(progress_path, {"progress": -1, "message": user_message})
+            print(f"[TWITCH_ERROR] {msg}", flush=True)
+            print(user_message, flush=True)
+            sys.exit(2)
+        # 該当しないエラーは下の Exception へフォールバック
+        raise
     except Exception as e:
         safe_write_json(progress_path, {"progress": -1, "message": f"エラー: {e}"})
         print("エラー:", e, flush=True)

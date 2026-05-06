@@ -4,6 +4,7 @@
 - 一時ファイルクリーンアップ
 - 起動回数カウント
 """
+
 import os
 import sys
 import glob
@@ -34,6 +35,7 @@ def get_ffmpeg_path():
         return bin_path
     try:
         import imageio_ffmpeg
+
         return imageio_ffmpeg.get_ffmpeg_exe()
     except Exception:
         pass

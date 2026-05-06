@@ -34,9 +34,7 @@ class PlanGate:
     def __init__(self, credential: dict):
         self._credential = credential
         self.plan: str = credential.get("plan", "single")
-        self.support_expires_at = self._parse_iso(
-            credential.get("support_expires_at")
-        )
+        self.support_expires_at = self._parse_iso(credential.get("support_expires_at"))
         self.extension_expires_at = self._parse_iso(
             credential.get("extension_expires_at")
         )
@@ -70,7 +68,9 @@ class PlanGate:
             # extension 期限が無いキー = single プランで全機能解放（240 ヶ月後の値が credential に入っている前提）
             # 期限不明だがプラン上は解放する
             return True
-        return datetime.now(self.extension_expires_at.tzinfo) < self.extension_expires_at
+        return (
+            datetime.now(self.extension_expires_at.tzinfo) < self.extension_expires_at
+        )
 
     def is_support_active(self) -> bool:
         """バグ修正サポート期間内か"""
@@ -98,9 +98,7 @@ class PlanGate:
         """サポート残日数（負の場合は期限切れ）"""
         if self.support_expires_at is None:
             return None
-        delta = self.support_expires_at - datetime.now(
-            self.support_expires_at.tzinfo
-        )
+        delta = self.support_expires_at - datetime.now(self.support_expires_at.tzinfo)
         return delta.days
 
     def to_display_dict(self) -> dict:

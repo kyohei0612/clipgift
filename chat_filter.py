@@ -21,20 +21,20 @@ import re
 # 日本語文字（ひらがな・カタカナ・漢字 BMP）は含まない
 _EMOJI_RE = re.compile(
     "["
-    "\U0001F300-\U0001F5FF"  # symbols & pictographs
-    "\U0001F600-\U0001F64F"  # emoticons
-    "\U0001F680-\U0001F6FF"  # transport & map
-    "\U0001F700-\U0001F77F"  # alchemical symbols
-    "\U0001F780-\U0001F7FF"  # geometric extended
-    "\U0001F800-\U0001F8FF"  # supplemental arrows-C
-    "\U0001F900-\U0001F9FF"  # supplemental symbols
-    "\U0001FA00-\U0001FA6F"  # chess
-    "\U0001FA70-\U0001FAFF"  # extended pictographs A
-    "\U00002600-\U000026FF"  # miscellaneous symbols (☀ ☁ ★ ♡ 等)
-    "\U00002700-\U000027BF"  # dingbats (❤ ❌ ✓)
-    "\U0001F1E6-\U0001F1FF"  # regional indicator (flags)
-    "\U0000FE00-\U0000FE0F"  # variation selectors
-    "\U0001F018-\U0001F270"
+    "\U0001f300-\U0001f5ff"  # symbols & pictographs
+    "\U0001f600-\U0001f64f"  # emoticons
+    "\U0001f680-\U0001f6ff"  # transport & map
+    "\U0001f700-\U0001f77f"  # alchemical symbols
+    "\U0001f780-\U0001f7ff"  # geometric extended
+    "\U0001f800-\U0001f8ff"  # supplemental arrows-C
+    "\U0001f900-\U0001f9ff"  # supplemental symbols
+    "\U0001fa00-\U0001fa6f"  # chess
+    "\U0001fa70-\U0001faff"  # extended pictographs A
+    "\U00002600-\U000026ff"  # miscellaneous symbols (☀ ☁ ★ ♡ 等)
+    "\U00002700-\U000027bf"  # dingbats (❤ ❌ ✓)
+    "\U0001f1e6-\U0001f1ff"  # regional indicator (flags)
+    "\U0000fe00-\U0000fe0f"  # variation selectors
+    "\U0001f018-\U0001f270"
     "]+"
 )
 

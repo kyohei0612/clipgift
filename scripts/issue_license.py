@@ -44,9 +44,7 @@ def main() -> int:
         choices=["single"],
         help="プラン種別（Phase 1 は single 1 種のみ）",
     )
-    parser.add_argument(
-        "--buyer-email", required=True, help="購入者メールアドレス"
-    )
+    parser.add_argument("--buyer-email", required=True, help="購入者メールアドレス")
     parser.add_argument("--reason", required=True, help="発行理由（記録用）")
     parser.add_argument("--order-id", default=None, help="注文 ID（任意）")
     parser.add_argument(
@@ -63,9 +61,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--server-url",
-        default=os.environ.get(
-            "CLIPGIFT_LICENSE_SERVER_URL", DEFAULT_SERVER_URL
-        ),
+        default=os.environ.get("CLIPGIFT_LICENSE_SERVER_URL", DEFAULT_SERVER_URL),
         help="ライセンスサーバー URL",
     )
     parser.add_argument(
@@ -184,9 +180,7 @@ def _warn_if_duplicate_recent(email: str, plan: str, hours: int = 24) -> None:
                     entry.get("buyer_email", "").lower() == email.lower()
                     and entry.get("plan") == plan
                 ):
-                    issued_ts = datetime.fromisoformat(
-                        entry["issued_at"]
-                    ).timestamp()
+                    issued_ts = datetime.fromisoformat(entry["issued_at"]).timestamp()
                     if issued_ts >= cutoff:
                         matches.append(entry)
     except OSError:
@@ -199,7 +193,10 @@ def _warn_if_duplicate_recent(email: str, plan: str, hours: int = 24) -> None:
             file=sys.stderr,
         )
         for m in matches:
-            print(f"  - {m['issued_at']}  {m['key']}  ({m.get('reason','')})", file=sys.stderr)
+            print(
+                f"  - {m['issued_at']}  {m['key']}  ({m.get('reason', '')})",
+                file=sys.stderr,
+            )
         confirm = input("それでも続行しますか？ (yes/no): ").strip().lower()
         if confirm not in ("yes", "y"):
             print("中止しました", file=sys.stderr)
@@ -231,7 +228,7 @@ def _save_email_file(args, response: dict, issued_at: str) -> Path:
 
 {args.buyer_email} 様
 
-このたびはクリップギフト（{plan_label}プラン / {plan_price}）を
+このたびはクリップギフト（{plan_label} / {plan_price}）を
 ご購入いただき、誠にありがとうございます。
 
 以下のライセンスキーで認証してください：
@@ -246,8 +243,13 @@ def _save_email_file(args, response: dict, issued_at: str) -> Path:
 
 【ご利用条件】
   ・ アクティベーション可能台数: 最大 2 台
-  ・ サポート / アップデート期限: {support_expires}
+  ・ アップデート: 無料（買い切りユーザー全員、Phase 1 期間中）
+  ・ サポート期限: {support_expires}
   ・ 別マシンに移行する場合は、現マシンの設定画面から「ライセンス解除」を実行してください
+
+【今後の販売について】
+  クリップギフトは Phase 1（先着 10 名買い切り版）終了後、サブスクモデルへ移行予定です。
+  既にお買い上げの買い切り版は、移行後も継続してご利用いただけます。
 
 【サポート】
   ご不明な点や不具合がございましたら、以下までお気軽にお問い合わせください。
@@ -258,7 +260,7 @@ def _save_email_file(args, response: dict, issued_at: str) -> Path:
 
 ---
 発行日時: {issued_at}
-注文 ID: {args.order_id or '—'}
+注文 ID: {args.order_id or "—"}
 発行理由（社内記録）: {args.reason}
 """
     filename.write_text(body, encoding="utf-8")

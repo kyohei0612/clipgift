@@ -93,9 +93,7 @@ def _try_heartbeat(gate: PlanGate, fingerprint: str) -> AuthResult:
     try:
         response = activation_client.verify(gate.key, fingerprint)
         # credential を更新（refresh）
-        new_payload = _build_credential_payload(
-            response, gate.key, fingerprint
-        )
+        new_payload = _build_credential_payload(response, gate.key, fingerprint)
         credential_store.save_credential(new_payload, fingerprint)
         plan_gate.set_global(PlanGate(new_payload))
         logger.info("ハートビート成功、credential 更新")
@@ -150,9 +148,7 @@ def _run_first_time_activation(fingerprint: str, label: str) -> AuthResult:
     credential = show_activation_dialog(on_activate)
     if credential is None:
         # ユーザーがキャンセル（UI を閉じた）
-        return AuthResult(
-            ok=False, message="ライセンス認証がキャンセルされました"
-        )
+        return AuthResult(ok=False, message="ライセンス認証がキャンセルされました")
     return AuthResult(ok=True, plan=credential.get("plan"))
 
 

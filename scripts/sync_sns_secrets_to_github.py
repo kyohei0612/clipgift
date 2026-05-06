@@ -75,7 +75,9 @@ def main() -> int:
             print(f"  ❌ {name}: {err}", file=sys.stderr)
 
     print("=" * 50)
-    print(f"成功: {len(successes)} / 失敗: {len(failures)} / スキップ(未設定): {len(skipped)}")
+    print(
+        f"成功: {len(successes)} / 失敗: {len(failures)} / スキップ(未設定): {len(skipped)}"
+    )
     if skipped:
         print(f"  ⚠️  .env に値がない: {', '.join(skipped)}")
     return 0 if not failures else 2
