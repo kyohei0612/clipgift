@@ -596,6 +596,7 @@
           </div>
           <div id="version-badge">v-.-.-</div>
           <button class="btn-ghost" onclick="manualCheckUpdate()">UPDATE CHECK</button>
+          <button id="themeToggle" class="btn-ghost" type="button" title="テーマを切り替え">ライトモード</button>
           <button id="appCloseBtn" type="button" title="アプリを終了" style="background:transparent;border:1px solid var(--error);color:var(--error);border-radius:999px;padding:6px 14px;font-size:12px;font-weight:500;box-shadow:none;">✕ 閉じる</button>
         </div>
       </div>
@@ -927,6 +928,36 @@
         badge.style.display = "none";
       }
     });
+
+    // === テーマ切替（ライト/ダーク） ===
+    (function () {
+      const toggleBtn = document.getElementById("themeToggle");
+      if (!toggleBtn) return;
+
+      function applyTheme(mode) {
+        if (mode === "light") {
+          document.body.classList.add("light-mode");
+          toggleBtn.textContent = "ダークモード";
+        } else {
+          document.body.classList.remove("light-mode");
+          toggleBtn.textContent = "ライトモード";
+        }
+      }
+
+      const saved = localStorage.getItem("theme");
+      const prefersDark = window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+      // 保存値優先 / なければ OS 設定 / フォールバックは dark
+      const initial = saved || (prefersDark ? "dark" : "light");
+      applyTheme(initial);
+
+      toggleBtn.addEventListener("click", () => {
+        const isLight = !document.body.classList.contains("light-mode");
+        const next = isLight ? "light" : "dark";
+        applyTheme(next);
+        localStorage.setItem("theme", next);
+      });
+    })();
     </script>
   </body>
 </html>
