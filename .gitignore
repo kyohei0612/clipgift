@@ -22,3 +22,7 @@ sns_automation/.history.json
 
 # 内部組織管理（妻情報・戦略・本名等を含む、絶対に公開しない）
 .company/
+
+# ライセンス発行履歴・メール文（購入者の個人情報を含む、絶対に公開しない）
+scripts/issued_keys/
+scripts/.issued_keys.jsonl
