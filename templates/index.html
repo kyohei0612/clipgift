@@ -12,25 +12,82 @@
       *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
       :root {
+        /* === ブランドカラー（ロゴ青ベース、Design System v2） === */
+        --brand-50:  #F2F9FD;
+        --brand-100: #E0F1FB;
+        --brand-200: #B8E0F4;
+        --brand-300: #7FCAEB;
         --brand-400: #3FAEDD;
         --brand-500: #279AD9;
         --brand-600: #1F84BC;
         --brand-700: #1A6F9F;
+        --brand-800: #155A82;
+        --brand-900: #114868;
+
+        /* === ニュートラル (Slate) === */
+        --slate-50:  #F8FAFC;
+        --slate-100: #F1F5F9;
+        --slate-200: #E2E8F0;
+        --slate-300: #CBD5E1;
+        --slate-400: #94A3B8;
+        --slate-500: #64748B;
+        --slate-700: #334155;
+        --slate-800: #1E293B;
+        --slate-900: #0F172A;
+        --slate-950: #020617;
+
+        /* === Mode-aware tokens (デフォルト = ダーク) === */
         --bg:       #0B1220;
+        --bg-gradient: radial-gradient(ellipse at top, #0F1B33 0%, #0B1220 60%);
         --surface:  #111A2E;
         --surface2: #15213A;
+        --surface-elevated: #182846;
         --border:   #1E2B45;
+        --border-strong: #2A3A5C;
+        --text:     #E2E8F0;
+        --text-secondary: #94A3B8;
+        --muted:    #64748B;
         --accent:   var(--brand-500);
         --accent2:  var(--brand-700);
-        --text:     #E2E8F0;
-        --muted:    #64748B;
+        --accent-soft: rgba(39, 154, 217, 0.14);
+        --on-accent: #FFFFFF;
         --success:  #10B981;
         --error:    #EF4444;
+        --warning:  #F59E0B;
+
         --mono:     'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
         --sans:     'Inter', 'Noto Sans JP', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+
+        --shadow-sm: 0 1px 2px rgba(2, 6, 23, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.02);
+        --shadow-md: 0 6px 20px rgba(2, 6, 23, 0.45), 0 1px 2px rgba(2, 6, 23, 0.3);
+        --shadow-lg: 0 24px 60px rgba(2, 6, 23, 0.55), 0 2px 6px rgba(2, 6, 23, 0.4);
+
+        --radius-xs: 6px;
+        --radius-sm: 8px;
+        --radius-md: 12px;
+        --radius-lg: 16px;
+        --radius-xl: 20px;
+        --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
       }
 
-      html { scroll-behavior: smooth; }
+      body.light-mode {
+        --bg: #F8FAFC;
+        --bg-gradient: radial-gradient(ellipse at top, #FFFFFF 0%, #F1F5F9 70%);
+        --surface: #FFFFFF;
+        --surface2: #F8FAFC;
+        --surface-elevated: #FFFFFF;
+        --border: #E2E8F0;
+        --border-strong: #CBD5E1;
+        --text: #0F172A;
+        --text-secondary: #475569;
+        --muted: #94A3B8;
+        --accent-soft: rgba(39, 154, 217, 0.10);
+        --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(15, 23, 42, 0.04);
+        --shadow-md: 0 4px 16px rgba(15, 23, 42, 0.08), 0 1px 2px rgba(15, 23, 42, 0.04);
+        --shadow-lg: 0 16px 40px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.05);
+      }
+
+      html { scroll-behavior: smooth; font-feature-settings: "cv11", "ss01", "ss03"; }
 
       body {
         font-family: var(--sans);
@@ -38,6 +95,10 @@
         color: var(--text);
         min-height: 100vh;
         overflow-x: hidden;
+        line-height: 1.6;
+        letter-spacing: -0.005em;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
       }
 
       /* ── 背景グラデーション（ロゴ青ベース） ── */
@@ -45,7 +106,7 @@
         content: '';
         position: fixed;
         inset: 0;
-        background: radial-gradient(ellipse at top, #0F1B33 0%, #0B1220 60%);
+        background: var(--bg-gradient);
         pointer-events: none;
         z-index: 0;
       }
@@ -175,13 +236,14 @@
       .card {
         background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 16px;
+        border-radius: var(--radius-lg);
         padding: 28px 28px 24px;
         margin-bottom: 16px;
         animation: fadeUp .8s ease both;
-        transition: border-color .3s;
+        box-shadow: var(--shadow-sm);
+        transition: border-color var(--transition), box-shadow var(--transition);
       }
-      .card:hover { border-color: rgba(39, 154, 217,.2); }
+      .card:hover { border-color: var(--brand-300); box-shadow: var(--shadow-md); }
 
       .card-label {
         font-family: var(--mono);
@@ -231,31 +293,36 @@
       }
 
       .btn-primary {
-        background: var(--accent);
-        color: #0a0a0f;
+        background: linear-gradient(135deg, var(--brand-500), var(--brand-600));
+        color: var(--on-accent);
         border: none;
-        border-radius: 10px;
+        border-radius: var(--radius-sm);
         font-family: var(--sans);
         font-size: 13px;
         font-weight: 600;
         padding: 0 24px;
         cursor: pointer;
         white-space: nowrap;
-        transition: all .2s;
+        transition: var(--transition);
         position: relative;
         overflow: hidden;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(39, 154, 217, 0.18);
       }
       .btn-primary::after {
         content: '';
         position: absolute;
         inset: 0;
-        background: linear-gradient(135deg, rgba(255,255,255,.2), transparent);
+        background: linear-gradient(135deg, rgba(255,255,255,.18), transparent);
         opacity: 0;
-        transition: opacity .2s;
+        transition: opacity var(--transition);
       }
       .btn-primary:hover::after { opacity: 1; }
-      .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(39, 154, 217,.3); }
-      .btn-primary:active { transform: translateY(0); }
+      .btn-primary:hover {
+        background: linear-gradient(135deg, var(--brand-400), var(--brand-500));
+        transform: translateY(-1px);
+        box-shadow: 0 4px 14px rgba(39, 154, 217, 0.36);
+      }
+      .btn-primary:active { transform: translateY(0); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
       .btn-primary:disabled { background: var(--border); color: var(--muted); cursor: not-allowed; transform: none; box-shadow: none; }
 
       .btn-secondary {
@@ -363,19 +430,20 @@
         margin-bottom: 8px;
       }
       .log-console {
-        background: #060608;
+        background: var(--slate-950);
         border: 1px solid var(--border);
-        border-radius: 8px;
+        border-radius: var(--radius-sm);
         padding: 12px 14px;
         height: 120px;
         overflow-y: auto;
         font-family: var(--mono);
-        font-size: 10px;
+        font-size: 11px;
         color: #6ee7b7;
         line-height: 1.8;
         white-space: pre-wrap;
         word-break: break-all;
       }
+      body.light-mode .log-console { background: var(--slate-900); color: #6ee7b7; }
       .log-console::-webkit-scrollbar { width: 4px; }
       .log-console::-webkit-scrollbar-track { background: transparent; }
       .log-console::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
@@ -409,20 +477,22 @@
         display: none;
         position: fixed;
         inset: 0;
-        background: rgba(0,0,0,.8);
-        backdrop-filter: blur(8px);
+        background: rgba(2, 6, 23, 0.65);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
         z-index: 9999;
         align-items: center;
         justify-content: center;
       }
 
       .update-card {
-        background: var(--surface);
+        background: var(--surface-elevated);
         border: 1px solid var(--border);
-        border-radius: 20px;
+        border-radius: var(--radius-xl);
         padding: 40px;
         min-width: 340px;
         text-align: center;
+        box-shadow: var(--shadow-lg);
       }
 
       .update-icon { font-size: 40px; margin-bottom: 16px; }
@@ -450,10 +520,24 @@
         padding: 10px 24px;
         transition: all .2s;
       }
-      #update-close-btn { background: var(--accent); color: #0a0a0f; border: none; }
-      #update-close-btn:hover { box-shadow: 0 4px 16px rgba(39, 154, 217,.4); }
-      #update-skip-btn { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-left: 8px; }
-      #update-skip-btn:hover { border-color: var(--muted); }
+      #update-close-btn {
+        background: linear-gradient(135deg, var(--brand-500), var(--brand-600));
+        color: var(--on-accent);
+        border: none;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(39, 154, 217, 0.18);
+      }
+      #update-close-btn:hover {
+        background: linear-gradient(135deg, var(--brand-400), var(--brand-500));
+        box-shadow: 0 4px 16px rgba(39, 154, 217, .36);
+      }
+      #update-skip-btn { background: transparent; color: var(--muted); border: 1px solid var(--border); margin-left: 8px; box-shadow: none; }
+      #update-skip-btn:hover { border-color: var(--muted); box-shadow: none; }
+
+      /* === Scrollbar === */
+      ::-webkit-scrollbar { width: 10px; height: 10px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; border: 2px solid var(--bg); }
+      ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
     </style>
   </head>
   <body>
@@ -468,13 +552,13 @@
           <div class="logo-text">Clip<span>Gift</span></div>
         </div>
         <div class="topbar-right">
-          <div id="licenseBadge" style="display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;background:#7c3aed;color:white;font-size:12px;font-weight:600;cursor:pointer;" title="ライセンス情報">
+          <div id="licenseBadge" style="display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:linear-gradient(135deg,var(--brand-500),var(--brand-600));color:#fff;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(39,154,217,.3);" title="ライセンス情報">
             <span id="licensePlanLabel">未認証</span>
             <span id="licenseSupportRemaining" style="font-weight:400;font-size:10px;opacity:0.85;"></span>
           </div>
           <div id="version-badge">v-.-.-</div>
           <button class="btn-ghost" onclick="manualCheckUpdate()">UPDATE CHECK</button>
-          <button id="appCloseBtn" type="button" title="アプリを終了" style="padding:6px 14px;background:transparent;border:1px solid #d70015;color:#d70015;border-radius:6px;cursor:pointer;font-size:12px;">✕ 閉じる</button>
+          <button id="appCloseBtn" type="button" title="アプリを終了" style="background:transparent;border:1px solid var(--error);color:var(--error);border-radius:999px;padding:6px 14px;font-size:12px;font-weight:500;box-shadow:none;">✕ 閉じる</button>
         </div>
       </div>
 
