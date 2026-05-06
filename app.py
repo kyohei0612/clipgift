@@ -187,6 +187,12 @@ def restart_route():
             python_exe = get_python_exe()
             app_py = os.path.join(BASE_DIR, "app.py")
             port = config.SERVER_PORT
+            # bat にコマンドメタ文字を含むパスが混入してないか防御チェック
+            unsafe_chars = '%&^"<>|'
+            for p in (python_exe, app_py):
+                if any(c in p for c in unsafe_chars):
+                    logger.error("再起動パスに不正文字が含まれます: %s", p)
+                    return
             # 自プロセスは os._exit 直後で port 解放されるはずだが、
             # 念のため: 1 秒待機 → port 5000 を握ってる PID を taskkill → 新規起動
             # これで多重起動防止に引っかからず確実に立ち上がる
@@ -469,7 +475,12 @@ def download_yt_video_chat():
                 # progress.jsonへの書き込みはdownloader.pyに完全に任せる
 
             proc.wait()
-            if proc.returncode != 0:
+            if proc.returncode == 2:
+                # downloader が ChatNotAvailableError 等のユーザー向け親切メッセージを
+                # progress.json に書き込んで exit(2) しているため、ここでは上書きしない。
+                # （ライブ配信中 URL / リプレイ無効動画等の友好的エラー表示）
+                pass
+            elif proc.returncode != 0:
                 tail = "\n".join(output_lines[-10:]) if output_lines else "出力なし"
                 # エラー時だけapp.pyが書く（downloaderが書けていないケース）
                 try:
