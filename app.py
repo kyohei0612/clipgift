@@ -170,6 +170,50 @@ def shutdown_route():
     return jsonify({"success": True, "message": "サーバーを終了します"})
 
 
+@app.route("/api/restart", methods=["POST"])
+def restart_route():
+    """
+    アップデート後の自動再起動 API。
+
+    別プロセスを spawn → 自プロセスは os._exit。
+    多重起動防止が干渉しないよう、spawn 側は数秒待ってから python を起動する。
+    """
+    logger.info("🔄 アップデート完了、自動再起動を実行")
+
+    def _spawn_restart():
+        # まずレスポンスを返すための短い遅延
+        time.sleep(0.3)
+        try:
+            python_exe = get_python_exe()
+            app_py = os.path.join(BASE_DIR, "app.py")
+            # Windows: timeout で 3 秒待ってから新プロセスを start で切り離して起動
+            # 自プロセスが完全に exit するまで port 5000 が空かない & 多重起動防止に引っかかる
+            bat_lines = [
+                "@echo off",
+                "timeout /t 3 /nobreak > nul",
+                f'start "" /b "{python_exe}" "{app_py}"',
+                "exit /b 0",
+            ]
+            bat_path = os.path.join(BASE_DIR, "_clipgift_restart.bat")
+            with open(bat_path, "w", encoding="cp932", errors="replace") as f:
+                f.write("\r\n".join(bat_lines) + "\r\n")
+            DETACHED_PROCESS = 0x00000008
+            CREATE_NEW_PROCESS_GROUP = 0x00000200
+            subprocess.Popen(
+                ["cmd", "/c", bat_path],
+                creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+                close_fds=True,
+            )
+        except Exception as e:
+            logger.exception("再起動 spawn 失敗: %s", e)
+        # spawn 後に自プロセスを exit（port 解放）
+        time.sleep(0.5)
+        os._exit(0)
+
+    threading.Thread(target=_spawn_restart, daemon=True).start()
+    return jsonify({"success": True, "message": "再起動します"})
+
+
 @app.route("/heartbeat", methods=["POST"])
 def heartbeat():
     global _last_heartbeat

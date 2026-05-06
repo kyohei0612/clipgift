@@ -867,8 +867,18 @@
           fetch("/update-state").then(r => r.json()).then(state => {
             msg.textContent = state.message;
             if (state.status === "done") {
-              clearInterval(timer); icon.textContent = "✓"; title.textContent = "更新しました";
-              msg.textContent = "次回起動時に反映されます"; spinner.style.display = "none"; closeBtn.style.display = "inline-block";
+              clearInterval(timer);
+              icon.textContent = "✓";
+              title.textContent = "更新しました";
+              msg.textContent = "3 秒後に自動で再起動します...";
+              spinner.style.display = "none";
+              // 自動再起動 → ブラウザは新サーバーへ自動再接続
+              setTimeout(() => {
+                fetch("/api/restart", { method: "POST" }).catch(() => {});
+                msg.textContent = "再起動中... 数秒お待ちください";
+                // 5 秒後にページ再読込（新サーバー起動済み想定）
+                setTimeout(() => location.reload(), 5000);
+              }, 3000);
             } else if (state.status === "error") {
               clearInterval(timer); icon.textContent = "✕"; title.textContent = "更新に失敗しました";
               spinner.style.display = "none"; skipBtn.style.display = "inline-block";
