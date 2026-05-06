@@ -2,7 +2,12 @@
  * クリップギフト ライセンスサーバー 型定義
  */
 
-export type Plan = "lite" | "std" | "ext";
+/**
+ * Phase 1（買い切り）以降のプラン。1 プランのみ運用。
+ * 旧 lite / std / ext は後方互換のため keys.ts では decode 可能だが、
+ * すべて "single" として正規化される。
+ */
+export type Plan = "single";
 
 export interface Env {
   LICENSES: KVNamespace;

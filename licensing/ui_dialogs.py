@@ -156,6 +156,7 @@ ACTIVATION_HTML = """<!DOCTYPE html>
 
         // サーバー側 key_validator.py と同じセット
         const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+        // Phase 1: 新規発行は STD のみ。LITE / EXT は後方互換で受理。
         const VALID_PLANS = ['LITE', 'STD', 'EXT'];
 
         function showError(msg) {
@@ -211,8 +212,8 @@ ACTIVATION_HTML = """<!DOCTYPE html>
                 keyStatus.className = 'key-status';
                 button.disabled = true;
             } else if (validation.ok) {
-                const planLabel = { LITE: 'ライト', STD: 'スタンダード', EXT: '拡張' }[validation.plan] || validation.plan;
-                keyStatus.textContent = `✓ 形式 OK（${planLabel}プラン）`;
+                // Phase 1: 全プランコードを「ClipGift 買い切り版」に統一表示
+                keyStatus.textContent = `✓ 形式 OK（ClipGift 買い切り版）`;
                 keyStatus.className = 'key-status valid';
                 button.disabled = false;
             } else {

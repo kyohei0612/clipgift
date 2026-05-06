@@ -15,9 +15,11 @@ logger = logging.getLogger(__name__)
 _global_plan_gate: Optional["PlanGate"] = None
 
 PLAN_LABELS = {
-    "lite": "ライト版",
-    "std": "スタンダード版",
-    "ext": "拡張無料版",
+    "single": "ClipGift 買い切り版",
+    # 後方互換: 旧 credential が "lite" / "std" / "ext" を持っていても買い切り版として表示
+    "lite": "ClipGift 買い切り版",
+    "std": "ClipGift 買い切り版",
+    "ext": "ClipGift 買い切り版",
 }
 
 
@@ -31,7 +33,7 @@ class PlanGate:
 
     def __init__(self, credential: dict):
         self._credential = credential
-        self.plan: str = credential.get("plan", "lite")
+        self.plan: str = credential.get("plan", "single")
         self.support_expires_at = self._parse_iso(
             credential.get("support_expires_at")
         )
@@ -56,11 +58,18 @@ class PlanGate:
     # -------- 機能判定 --------
 
     def is_extended_features_enabled(self) -> bool:
-        """拡張機能（Twitch / 文字起こし等）が使えるか"""
-        if self.plan == "lite":
-            return False
+        """
+        拡張機能（Twitch / 文字起こし等）が使えるか。
+
+        Phase 1（single プラン）では全機能解放。後方互換のため
+        旧 lite キーが残っていても extension_expires_at を持っていれば許可する
+        （issue_license.py で全プランが extension_months=240 で発行されるようになったため、
+        現実的にはここで False になるケースはほぼ無い）。
+        """
         if self.extension_expires_at is None:
-            return False
+            # extension 期限が無いキー = single プランで全機能解放（240 ヶ月後の値が credential に入っている前提）
+            # 期限不明だがプラン上は解放する
+            return True
         return datetime.now(self.extension_expires_at.tzinfo) < self.extension_expires_at
 
     def is_support_active(self) -> bool:

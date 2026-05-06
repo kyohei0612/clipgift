@@ -10,25 +10,23 @@ import type { Plan } from "./types";
 
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 文字、I/O/0/1 除外
 
-function planCode(plan: Plan): string {
-  switch (plan) {
-    case "lite":
-      return "LITE";
-    case "std":
-      return "STD";
-    case "ext":
-      return "EXT";
-  }
+/**
+ * 新規発行は "single" のみ。内部キー形式は "STD" コードを採用（既存テストキーと互換）。
+ */
+function planCode(_plan: Plan): string {
+  return "STD";
 }
 
+/**
+ * キー検証時のコード→プラン変換。
+ * 後方互換: 旧 LITE / STD / EXT のすべてを "single" として扱う。
+ */
 function planFromCode(code: string): Plan | null {
   switch (code) {
     case "LITE":
-      return "lite";
     case "STD":
-      return "std";
     case "EXT":
-      return "ext";
+      return "single";
     default:
       return null;
   }

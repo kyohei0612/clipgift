@@ -15,8 +15,9 @@ logger = logging.getLogger(__name__)
 # サーバー側 keys.ts と一致させる
 ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 PRODUCT_PREFIX = "CGFT"
+# 後方互換: 旧 LITE / STD / EXT のキーも受理（すべて "single" に正規化）
 VALID_PLAN_CODES = {"LITE", "STD", "EXT"}
-PLAN_CODE_TO_NAME = {"LITE": "lite", "STD": "std", "EXT": "ext"}
+PLAN_CODE_TO_NAME = {"LITE": "single", "STD": "single", "EXT": "single"}
 
 
 def validate_key_format(key: str) -> Optional[str]:
@@ -27,7 +28,7 @@ def validate_key_format(key: str) -> Optional[str]:
     UI 入力時の早期リジェクト用。
 
     Returns:
-        プラン名 (lite/std/ext) または None（不正形式）
+        プラン名 ("single") または None（不正形式）
     """
     if not isinstance(key, str):
         return None

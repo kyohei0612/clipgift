@@ -35,9 +35,13 @@ export async function handleAdminIssue(
   }
 
   const body = await parseJsonBody<AdminIssueRequest>(request);
+  // 後方互換: "single" / "lite" / "std" / "ext" すべて受理（内部的には single として発行）
+  const planAccepted = body
+    ? ["single", "lite", "std", "ext"].includes(body.plan as string)
+    : false;
   if (
     !body ||
-    !["lite", "std", "ext"].includes(body.plan) ||
+    !planAccepted ||
     typeof body.buyer_email !== "string" ||
     typeof body.reason !== "string"
   ) {
@@ -47,6 +51,8 @@ export async function handleAdminIssue(
       400
     );
   }
+  // すべて single に正規化
+  body.plan = "single";
 
   // 注文 ID 重複チェック（同一注文で 2 回キー発行を防ぐ）
   if (body.order_id) {

@@ -32,17 +32,17 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 HISTORY_FILE = SCRIPT_DIR / ".issued_keys.jsonl"
 EMAIL_DIR = SCRIPT_DIR / "issued_keys"
 
-PLAN_LABELS = {"lite": "ライト", "std": "スタンダード", "ext": "拡張"}
-PLAN_PRICES = {"lite": "1,980 円", "std": "4,980 円（早期割 2,980 円）", "ext": "9,800 円"}
+PLAN_LABELS = {"single": "ClipGift 買い切り版"}
+PLAN_PRICES = {"single": "通常 9,800 円 / 先着 10 名限定 6,980 円"}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="ライセンスキーを手動発行する")
     parser.add_argument(
         "--plan",
-        required=True,
-        choices=["lite", "std", "ext"],
-        help="プラン種別",
+        default="single",
+        choices=["single"],
+        help="プラン種別（Phase 1 は single 1 種のみ）",
     )
     parser.add_argument(
         "--buyer-email", required=True, help="購入者メールアドレス"

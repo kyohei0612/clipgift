@@ -80,35 +80,16 @@ export function isoNow(): string {
 }
 
 /**
- * プラン別のサポート期間（バグ修正期間）月数を返す
+ * Phase 1 = single プラン 1 種のみ。サポート / 拡張ともに 240 ヶ月（永久相当）。
+ *
+ * 引数は後方互換のため "single" 以外も受け取れるが、すべて同じ値を返す。
  */
-export function defaultSupportMonths(
-  plan: "lite" | "std" | "ext"
-): number {
-  switch (plan) {
-    case "lite":
-      return 3;
-    case "std":
-      return 12;
-    case "ext":
-      return 240; // 永続相当（20 年）
-  }
+export function defaultSupportMonths(_plan: string): number {
+  return 240;
 }
 
-/**
- * プラン別の拡張機能期間月数を返す（null = 拡張機能なし）
- */
-export function defaultExtensionMonths(
-  plan: "lite" | "std" | "ext"
-): number | null {
-  switch (plan) {
-    case "lite":
-      return null;
-    case "std":
-      return 12;
-    case "ext":
-      return 240;
-  }
+export function defaultExtensionMonths(_plan: string): number | null {
+  return 240;
 }
 
 /**
