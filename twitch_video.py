@@ -41,13 +41,83 @@ SEGMENT_DOWNLOAD_TIMEOUT_SEC = 60
 SEGMENT_DOWNLOAD_RETRIES = 3
 PARALLEL_DOWNLOAD_WORKERS = 8
 
+# メタデータ（token / master / variant playlist）取得時の共通リトライ設定
+META_REQUEST_TIMEOUT_SEC = 30
+META_REQUEST_RETRIES = 4
+
+
+def _http_request_with_retry(
+    method: str,
+    url: str,
+    *,
+    headers: Optional[dict] = None,
+    params: Optional[dict] = None,
+    json_body: Optional[dict] = None,
+    timeout: int = META_REQUEST_TIMEOUT_SEC,
+    max_retries: int = META_REQUEST_RETRIES,
+    retry_on_status: Tuple[int, ...] = (429, 500, 502, 503, 504),
+) -> requests.Response:
+    """
+    HTTP リクエスト共通ヘルパー。一時的な通信失敗 / 5xx / 429 を指数バックオフで再試行する。
+
+    リトライしないケース:
+        - 4xx（429 を除く）: クライアント側エラー、再試行しても同じ
+        - max_retries 到達後の最終失敗
+    """
+    last_err: Optional[Exception] = None
+    for attempt in range(max_retries):
+        try:
+            r = requests.request(
+                method, url,
+                headers=headers, params=params, json=json_body,
+                timeout=timeout,
+            )
+            # 4xx は基本リトライしない（429 はリトライ）
+            if 400 <= r.status_code < 500 and r.status_code not in retry_on_status:
+                r.raise_for_status()
+                return r
+            # 5xx / 429 はリトライ対象
+            if r.status_code in retry_on_status and attempt < max_retries - 1:
+                wait = 1.5 ** attempt + 0.5
+                print(
+                    f"[WARN] HTTP {r.status_code} from {url[:80]}, "
+                    f"{wait:.1f}s 後にリトライ (試行 {attempt + 1}/{max_retries})",
+                    flush=True,
+                )
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            return r
+        except (requests.exceptions.ConnectionError,
+                requests.exceptions.Timeout,
+                requests.exceptions.ChunkedEncodingError) as e:
+            last_err = e
+            if attempt < max_retries - 1:
+                wait = 1.5 ** attempt + 0.5
+                print(
+                    f"[WARN] 通信エラー {type(e).__name__} for {url[:80]}, "
+                    f"{wait:.1f}s 後にリトライ (試行 {attempt + 1}/{max_retries})",
+                    flush=True,
+                )
+                time.sleep(wait)
+                continue
+            break
+        except requests.exceptions.HTTPError as e:
+            # raise_for_status で来た場合（4xx 等、リトライ対象外）
+            last_err = e
+            break
+    raise RuntimeError(
+        f"HTTP リトライ上限到達 ({method} {url[:80]}): {last_err}"
+    ) from last_err
+
 
 def get_access_token(video_id: str) -> Tuple[str, str]:
-    """GraphQL で VOD のアクセストークンを取得"""
+    """GraphQL で VOD のアクセストークンを取得（一時失敗はリトライ）"""
     body = {"query": GET_ACCESS_TOKEN_QUERY, "variables": {"videoID": video_id}}
     headers = {"Client-ID": TWITCH_CLIENT_ID}
-    r = requests.post(TWITCH_GQL_URL, headers=headers, json=body, timeout=30)
-    r.raise_for_status()
+    r = _http_request_with_retry(
+        "POST", TWITCH_GQL_URL, headers=headers, json_body=body
+    )
     data = r.json()
     token_data = (data.get("data") or {}).get("videoPlaybackAccessToken")
     if not token_data:
@@ -58,7 +128,7 @@ def get_access_token(video_id: str) -> Tuple[str, str]:
 
 
 def fetch_master_playlist(video_id: str, token: str, signature: str) -> str:
-    """マスタープレイリスト（M3U8）を取得"""
+    """マスタープレイリスト（M3U8）を取得（一時失敗はリトライ）"""
     params = {
         "allow_source": "true",
         "allow_audio_only": "true",
@@ -69,8 +139,7 @@ def fetch_master_playlist(video_id: str, token: str, signature: str) -> str:
         "nauthsig": signature,
     }
     url = USHER_BASE_URL.format(video_id=video_id)
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
+    r = _http_request_with_retry("GET", url, params=params)
     return r.text
 
 
@@ -134,9 +203,8 @@ def choose_variant(variants: List[dict], max_height: int = 1080) -> dict:
 
 
 def fetch_variant_playlist(variant_url: str) -> List[Tuple[float, str]]:
-    """バリアントプレイリストから (duration, segment_url) のリストを返す"""
-    r = requests.get(variant_url, timeout=30)
-    r.raise_for_status()
+    """バリアントプレイリストから (duration, segment_url) のリストを返す（一時失敗はリトライ）"""
+    r = _http_request_with_retry("GET", variant_url)
     content = r.text
     base_url = variant_url.rsplit("/", 1)[0] + "/"
 
