@@ -1,0 +1,113 @@
+name: SNS 自動投稿
+
+on:
+  schedule:
+    # JST 9:00 平日 = UTC 0:00 平日
+    - cron: '0 0 * * 1-5'
+    # JST 19:00 平日 = UTC 10:00 平日
+    - cron: '0 10 * * 1-5'
+    # JST 11:00 土日 = UTC 2:00 土日
+    - cron: '0 2 * * 6,0'
+    # JST 21:00 土日 = UTC 12:00 土日
+    - cron: '0 12 * * 6,0'
+
+  workflow_dispatch:
+    inputs:
+      schedule_name:
+        description: 'スケジュール名（schedule.yaml の name）'
+        required: true
+        type: choice
+        default: weekday_morning
+        options:
+          - weekday_morning
+          - weekday_evening
+          - weekend_morning
+          - weekend_evening
+          - note_announce
+          - launch_day
+      note_url:
+        description: 'note URL（note_announce 時のみ）'
+        required: false
+        type: string
+      note_title:
+        description: 'note タイトル（note_announce 時のみ）'
+        required: false
+        type: string
+      note_summary:
+        description: 'note 要約（note_announce 時のみ）'
+        required: false
+        type: string
+      booth_url:
+        description: 'BOOTH URL（launch_day 等で使用）'
+        required: false
+        type: string
+      dry_run:
+        description: 'ドライランモード（実投稿しない）'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r sns_automation/requirements.txt
+
+      - name: Resolve schedule name (cron path)
+        id: resolve
+        run: |
+          # cron 経由なら GITHUB_EVENT_NAME=schedule で、cron 文字列から判定
+          # workflow_dispatch なら inputs.schedule_name を使用
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.schedule_name }}" >> "$GITHUB_OUTPUT"
+            echo "dry_run=${{ inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+          else
+            case "${{ github.event.schedule }}" in
+              "0 0 * * 1-5")  echo "name=weekday_morning" >> "$GITHUB_OUTPUT" ;;
+              "0 10 * * 1-5") echo "name=weekday_evening" >> "$GITHUB_OUTPUT" ;;
+              "0 2 * * 6,0")  echo "name=weekend_morning" >> "$GITHUB_OUTPUT" ;;
+              "0 12 * * 6,0") echo "name=weekend_evening" >> "$GITHUB_OUTPUT" ;;
+              *) echo "name=weekday_morning" >> "$GITHUB_OUTPUT" ;;
+            esac
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run poster
+        env:
+          THREADS_APP_ID: ${{ secrets.THREADS_APP_ID }}
+          THREADS_APP_SECRET: ${{ secrets.THREADS_APP_SECRET }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          X_CONSUMER_KEY: ${{ secrets.X_CONSUMER_KEY }}
+          X_CONSUMER_SECRET: ${{ secrets.X_CONSUMER_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+        run: |
+          ARGS="--schedule ${{ steps.resolve.outputs.name }}"
+          if [ "${{ steps.resolve.outputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          if [ -n "${{ inputs.note_url }}" ]; then
+            ARGS="$ARGS --var url=${{ inputs.note_url }}"
+          fi
+          if [ -n "${{ inputs.note_title }}" ]; then
+            ARGS="$ARGS --var title=${{ inputs.note_title }}"
+          fi
+          if [ -n "${{ inputs.note_summary }}" ]; then
+            ARGS="$ARGS --var summary=${{ inputs.note_summary }}"
+          fi
+          if [ -n "${{ inputs.booth_url }}" ]; then
+            ARGS="$ARGS --var booth_url=${{ inputs.booth_url }}"
+          fi
+          python -m sns_automation.poster $ARGS

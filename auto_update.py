@@ -34,6 +34,23 @@ EXCLUDE_FILES = {
     "version.json",
 }
 
+# 製品配布物以外（マーケティングツール・CI・組織管理・環境変数）
+# エンドユーザーへ降ろさない / ローカル削除もしない
+EXCLUDE_PREFIXES = (
+    ".company/",
+    ".github/",
+    ".claude/",
+    "sns_automation/",
+    ".env",
+    ".gitignore",
+)
+
+
+def _is_excluded(rel_path: str) -> bool:
+    if rel_path in EXCLUDE_FILES:
+        return True
+    return any(rel_path.startswith(prefix) for prefix in EXCLUDE_PREFIXES)
+
 # 更新状態をメモリで管理
 _update_state = {
     "status": "idle",   # idle / checking / updating / done / error
@@ -232,7 +249,7 @@ def run_update_async():
             with _update_lock:
                 _update_state["message"] = "ファイル一覧を取得中..."
             all_files = _get_all_files()
-            files = [f for f in all_files if f not in EXCLUDE_FILES]
+            files = [f for f in all_files if not _is_excluded(f)]
 
             for i, filepath in enumerate(files):
                 with _update_lock:
@@ -244,11 +261,11 @@ def run_update_async():
                 _update_state["message"] = "不要ファイルを削除中..."
             github_files = set(all_files) | {"version.json"}
             for root, dirs, local_files in os.walk(BASE_DIR):
-                dirs[:] = [d for d in dirs if d not in {".git", "bin", "__pycache__"}]
+                dirs[:] = [d for d in dirs if d not in {".git", "bin", "__pycache__", ".company", ".github", ".claude", "sns_automation"}]
                 for fname in local_files:
                     local_abs = os.path.join(root, fname)
                     rel = os.path.relpath(local_abs, BASE_DIR).replace(os.sep, "/")
-                    if rel in EXCLUDE_FILES or rel in github_files or rel.endswith(".bak"):
+                    if _is_excluded(rel) or rel in github_files or rel.endswith(".bak"):
                         continue
                     try:
                         os.remove(local_abs)

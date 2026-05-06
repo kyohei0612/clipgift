@@ -12,3 +12,13 @@ __pycache__/
 *.pyc
 .claude/
 .update_in_progress
+.env
+.env.local
+.env.*.local
+sns_automation/.env
+sns_automation/.env.local
+sns_automation/.env.*.local
+sns_automation/.history.json
+
+# 内部組織管理（妻情報・戦略・本名等を含む、絶対に公開しない）
+.company/

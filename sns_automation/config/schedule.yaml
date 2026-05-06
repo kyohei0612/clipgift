@@ -1,0 +1,55 @@
+# SNS 自動投稿スケジュール定義
+#
+# 構造:
+#   schedules:
+#     - name: スケジュール名（GitHub Actions のジョブ識別 + CLI 引数で指定）
+#       cron: GitHub Actions cron 式（UTC）
+#       platforms:
+#         <platform>: <category>  ← templates.yaml のカテゴリ名と一致
+#
+# 注意:
+#  - cron は UTC、JST との時差は +9:00（例: JST 9:00 = UTC 0:00）
+#  - GitHub Actions の cron は最短 5 分間隔、実際の発火は数分遅れることあり
+#  - スパム判定回避で投稿時刻に ±15 分のランダムを付加（poster.py 側で実装）
+
+schedules:
+  - name: weekday_morning
+    cron: "0 0 * * 1-5"        # JST 9:00 平日
+    platforms:
+      x: daily
+      threads: daily
+
+  - name: weekday_evening
+    cron: "0 10 * * 1-5"       # JST 19:00 平日
+    platforms:
+      x: achievement
+      threads: daily
+      bluesky: daily
+
+  - name: weekend_morning
+    cron: "0 2 * * 6,0"        # JST 11:00 土日
+    platforms:
+      x: daily
+      threads: daily
+
+  - name: weekend_evening
+    cron: "0 12 * * 6,0"       # JST 21:00 土日
+    platforms:
+      x: teaser
+      threads: longform
+      bluesky: launch
+
+  # 以下は workflow_dispatch（手動トリガー）専用、cron では発火しない
+  - name: note_announce
+    cron: ""                    # cron なし、手動 / note 投下時 API トリガー
+    platforms:
+      x: note_announce
+      threads: note_announce
+      bluesky: note_announce
+
+  - name: launch_day
+    cron: ""                    # cron なし、5/22 BOOTH 出品時に手動実行
+    platforms:
+      x: teaser                 # x-D-3 公開当日テンプレ
+      threads: teaser           # threads-D-2 公開告知テンプレ
+      bluesky: teaser           # bluesky-D-2 公開告知テンプレ
