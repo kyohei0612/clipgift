@@ -758,6 +758,8 @@ let chatPath = "",
   cancelledClipIds = new Set(),
   completedIds = [],
   completedSet = new Set(),
+  failedIds = [],
+  failedSet = new Set(),
   peaksInstance = null,
   modalTitleInput = null,
   currentClipId = null,
@@ -1210,6 +1212,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       renderQueueList();
+      saveQueueState();
+      updateBatchButtonMode();
       closeModal();
     });
   }
@@ -1341,6 +1345,8 @@ document.addEventListener("DOMContentLoaded", () => {
     queue = queue.filter((clip) => !cancelledClipIds.has(clip.id));
     cancelledClipIds.clear();
     renderQueueList();
+    saveQueueState();
+    updateBatchButtonMode();
     console.log("キャンセルしたクリップをキューから削除しました");
   });
 
@@ -1356,10 +1362,23 @@ document.addEventListener("DOMContentLoaded", () => {
     startDownloadBtn.disabled = true;
     cancelDownloadBtn.style.display = "inline-block";
 
-    const pendingClips = queue.filter((clip) => !completedSet.has(clip.id));
+    // モード判定: 失敗クリップが残っていれば「エラーのみ再 DL モード」
+    const inErrorRetryMode = failedIds.length > 0;
+    let pendingClips;
+    if (inErrorRetryMode) {
+      pendingClips = queue.filter((clip) => failedSet.has(clip.id));
+      console.log(`🔄 エラー再 DL モード: ${pendingClips.length} 件を再試行`);
+      // 再試行するので failed 履歴は一旦リセット（処理結果で再度判定される）
+      failedIds = [];
+      failedSet = new Set();
+      saveQueueState();
+      updateBatchButtonMode();
+    } else {
+      pendingClips = queue.filter((clip) => !completedSet.has(clip.id));
+    }
 
     queue.forEach((clip) => {
-      if (completedSet.has(clip.id)) {
+      if (completedSet.has(clip.id) && !pendingClips.some((p) => p.id === clip.id)) {
         const li = document.getElementById(`queue-item-${clip.id}`);
         if (li) {
           li.innerHTML = `
@@ -1493,6 +1512,27 @@ document.addEventListener("DOMContentLoaded", () => {
           throw new Error(pData.message || "処理中にエラーが発生しました");
         }
 
+        // 失敗クリップを反映（スキップ＋続行モード対応）
+        if (Array.isArray(pData.failed_clip_indices)) {
+          pData.failed_clip_indices.forEach((failedIdx) => {
+            const clip = pendingClips[failedIdx];
+            if (!clip) return;
+            if (!failedSet.has(clip.id)) {
+              failedIds.push(clip.id);
+              failedSet.add(clip.id);
+              const li = document.getElementById(`queue-item-${clip.id}`);
+              if (li) {
+                li.innerHTML = `
+                <div class="status" style="color:#dc2626;font-weight:bold;">❌ 失敗（再 DL 可能）</div>
+                <div><strong>${clip.title}</strong></div>
+                <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
+                `;
+              }
+            }
+          });
+          saveQueueState();
+        }
+
         const rawIdx = pData.current_clip;
         const currentIdx = rawIdx > 0 ? rawIdx - 1 : 0;
         const percent = Math.min(Math.max(pData.progress, 0), 100);
@@ -1501,6 +1541,8 @@ document.addEventListener("DOMContentLoaded", () => {
           for (let i = Math.max(lastClipIdx, 0); i < currentIdx; i++) {
             const clip = pendingClips[i];
             if (!clip) continue;
+            // 失敗クリップは completed に入れない（既に失敗 UI 表示済み）
+            if (failedSet.has(clip.id)) continue;
             if (!completedSet.has(clip.id)) {
               completedIds.push(clip.id);
               completedSet.add(clip.id);
@@ -1545,6 +1587,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (pData.all_done) {
           pendingClips.forEach((clip) => {
+            if (failedSet.has(clip.id)) return;
             if (!completedSet.has(clip.id)) {
               completedIds.push(clip.id);
               completedSet.add(clip.id);
@@ -1558,6 +1601,8 @@ document.addEventListener("DOMContentLoaded", () => {
               `;
             }
           });
+          saveQueueState();
+          updateBatchButtonMode();
           break;
         }
       }
@@ -1817,6 +1862,89 @@ function closeModal() {
   currentClipId = null;
 }
 
+// === localStorage で queue / completed / failed を永続化（リロード時復元）===
+const STORAGE_KEY_QUEUE = "clipgift_queue_v1";
+const STORAGE_KEY_COMPLETED = "clipgift_completed_v1";
+const STORAGE_KEY_FAILED = "clipgift_failed_v1";
+
+function saveQueueState() {
+  try {
+    localStorage.setItem(STORAGE_KEY_QUEUE, JSON.stringify(queue));
+    localStorage.setItem(STORAGE_KEY_COMPLETED, JSON.stringify(completedIds));
+    localStorage.setItem(STORAGE_KEY_FAILED, JSON.stringify(failedIds));
+  } catch (e) {
+    console.warn("queue 状態の保存に失敗:", e);
+  }
+}
+
+function loadQueueState() {
+  try {
+    const q = localStorage.getItem(STORAGE_KEY_QUEUE);
+    const c = localStorage.getItem(STORAGE_KEY_COMPLETED);
+    const f = localStorage.getItem(STORAGE_KEY_FAILED);
+    if (q) {
+      const parsed = JSON.parse(q);
+      if (Array.isArray(parsed)) {
+        queue = parsed;
+      }
+    }
+    if (c) {
+      const parsed = JSON.parse(c);
+      if (Array.isArray(parsed)) {
+        completedIds = parsed;
+        completedSet = new Set(parsed);
+      }
+    }
+    if (f) {
+      const parsed = JSON.parse(f);
+      if (Array.isArray(parsed)) {
+        failedIds = parsed;
+        failedSet = new Set(parsed);
+      }
+    }
+    if (queue.length > 0) {
+      console.log(
+        `📦 localStorage からキュー復元: ${queue.length} 件 ` +
+        `(完了 ${completedIds.length} / 失敗 ${failedIds.length})`
+      );
+    }
+  } catch (e) {
+    console.warn("queue 状態の復元に失敗:", e);
+  }
+}
+
+function clearQueueState() {
+  try {
+    localStorage.removeItem(STORAGE_KEY_QUEUE);
+    localStorage.removeItem(STORAGE_KEY_COMPLETED);
+    localStorage.removeItem(STORAGE_KEY_FAILED);
+  } catch (e) {}
+}
+
+// 起動時に復元
+document.addEventListener("DOMContentLoaded", () => {
+  setTimeout(() => {
+    loadQueueState();
+    if (queue.length > 0) renderQueueList();
+    updateBatchButtonMode();
+  }, 100);
+});
+
+// === 一括生成ボタンのモード切替（通常 / エラーのみ再 DL） ===
+function updateBatchButtonMode() {
+  const btn = document.getElementById("startDownloadBtn") ||
+              document.querySelector("[data-role='start-download']");
+  if (!btn) return;
+  const hasFailed = failedIds.length > 0;
+  if (hasFailed) {
+    btn.textContent = `🔄 エラーのみ再ダウンロード (${failedIds.length} 件)`;
+    btn.style.background = "#f59e0b";
+  } else {
+    btn.textContent = "📥 一括生成開始";
+    btn.style.background = "";
+  }
+}
+
 function renderQueueList() {
   queueList.innerHTML = "";
 
@@ -1908,8 +2036,17 @@ function renderQueueList() {
 
     deleteBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      queue.splice(index, 1);
+      const removed = queue.splice(index, 1)[0];
+      if (removed) {
+        // 削除されたクリップは failed/completed 履歴からも除外
+        failedIds = failedIds.filter((x) => x !== removed.id);
+        failedSet.delete(removed.id);
+        completedIds = completedIds.filter((x) => x !== removed.id);
+        completedSet.delete(removed.id);
+      }
       renderQueueList();
+      saveQueueState();
+      updateBatchButtonMode();
     });
 
     li.appendChild(deleteBtn);

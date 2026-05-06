@@ -79,6 +79,6 @@ if "%BUILD_ONLY%"=="1" (
 ) else (
     echo [5/5] Done!
 )
-echo Output: %~dp0installer_output\YouTubeClipTool_Setup.exe
+echo Output: %~dp0installer_output\ClipGift_Setup.exe
 pause
 endlocal

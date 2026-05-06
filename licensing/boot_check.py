@@ -19,7 +19,7 @@ from licensing.exceptions import (
     LicensingError,
     NetworkError,
 )
-from licensing.key_validator import normalize_key, validate_key_format
+from licensing.key_validator import mask_key, normalize_key, validate_key_format
 from licensing.machine_id import get_machine_fingerprint, get_machine_label
 from licensing.plan_gate import PlanGate
 from licensing.ui_dialogs import show_activation_dialog
@@ -77,8 +77,9 @@ def _try_load_existing(fingerprint: str) -> Optional[AuthResult]:
     if not gate.needs_verification():
         plan_gate.set_global(gate)
         logger.info(
-            "既存ライセンス検証 OK: %s (slot %d/2)",
+            "既存ライセンス検証 OK: %s (key=%s, slot %d/2)",
             gate.plan_label(),
+            mask_key(gate.key),
             gate.machine_slot,
         )
         return AuthResult(ok=True, plan=gate.plan)

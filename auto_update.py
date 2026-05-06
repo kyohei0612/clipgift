@@ -139,17 +139,44 @@ def check_update():
         return {"has_update": False, "error": str(e)}
 
 
+def _is_legitimate_empty_file(filepath: str) -> bool:
+    """
+    空でも正当なファイル名の判定
+
+    Python の `__init__.py` はパッケージマーカーとして空でも有効。
+    その他、空でも問題ないファイル種別がある場合はここで許容する。
+    """
+    basename = os.path.basename(filepath.replace("/", os.sep))
+    if basename == "__init__.py":
+        return True
+    return False
+
+
 def _download_file(filepath):
     """GitHubからファイルをダウンロードしてローカルに上書き"""
     url = _github_raw_url(filepath)
     data = _fetch_url(url)
 
-    # 空ファイルは異常とみなしてスキップ
+    # 空ファイルは原則異常だが、__init__.py 等の正当な空ファイルは許容
+    # （CDN キャッシュ起因の事故も含めて safe net として 1 度リトライしてから判定）
     if not data:
-        raise ValueError(f"ダウンロードしたファイルが空です: {filepath}")
+        if _is_legitimate_empty_file(filepath):
+            data = b""  # 空のままローカル保存（パッケージマーカーとして有効）
+        else:
+            # CDN キャッシュ古い可能性 → 1 度リトライしてみる
+            time.sleep(1.0)
+            data = _fetch_url(url)
+            if not data:
+                if _is_legitimate_empty_file(filepath):
+                    data = b""
+                else:
+                    raise ValueError(
+                        f"ダウンロードしたファイルが空です: {filepath}（"
+                        f"CDN キャッシュの可能性があります、5 分後に再試行してください）"
+                    )
 
-    # .pyファイルの場合、Pythonとして構文チェック
-    if filepath.endswith(".py"):
+    # .pyファイルの場合、Pythonとして構文チェック（空ファイル除く）
+    if filepath.endswith(".py") and data:
         try:
             compile(data.decode("utf-8", errors="replace"), filepath, "exec")
         except SyntaxError as e:

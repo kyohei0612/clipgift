@@ -666,6 +666,9 @@ def process_clips():
             with open(progress_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False)
 
+        # 失敗クリップのインデックス記録用（クロージャ経由で run_process と共有）
+        _shared_failed = {"failed_clip_indices": []}
+
         def run_process():
             global current_process, current_clip_index, _is_processing
             with _process_logs_lock:
@@ -749,11 +752,24 @@ def process_clips():
                     with _state_lock:
                         is_cancelled = cancel_flag
                     if retcode != 0 and not is_cancelled:
-                        error_output = "\n".join(output_lines)
-                        logger.error("❌ サブプロセスがエラー終了しました:\n%s", error_output)
-                        raise subprocess.CalledProcessError(
-                            retcode, proc.args, output=error_output
+                        # ★ 1 クリップ失敗してもスキップして次のクリップへ進む
+                        # 失敗 clip の idx を progress.json に記録、UI 側で再 DL 対象に
+                        error_output = "\n".join(output_lines[-20:])  # 末尾 20 行のみ
+                        logger.error(
+                            "❌ クリップ %s 失敗 (retcode=%s)、スキップして続行:\n%s",
+                            clip_title, retcode, error_output,
                         )
+                        if "failed_clip_indices" not in _shared_failed:
+                            _shared_failed["failed_clip_indices"] = []
+                        _shared_failed["failed_clip_indices"].append(idx)
+                        _write_progress({
+                            "progress": int((idx + 1) / max(len(clips), 1) * 100),
+                            "message": f"⚠️ クリップ {idx + 1} の生成に失敗しました（次のクリップへ進みます）",
+                            "current_clip": idx,
+                            "failed_clip_indices": list(_shared_failed["failed_clip_indices"]),
+                        })
+                        # raise しない、次のクリップへ
+                        continue
 
                     if not is_cancelled:
                         logger.info("✅ %s: 処理完了", clip_title)
@@ -761,9 +777,22 @@ def process_clips():
                 with _state_lock:
                     is_cancelled = cancel_flag
                 if not is_cancelled:
-                    _append_log("✅ 全クリップ処理完了")
-                    logger.info("✅ 全クリップ処理完了")
-                    _write_progress({"progress": 100, "message": "全クリップ処理完了", "current_clip": len(clips), "all_done": True})
+                    failed_count = len(_shared_failed.get("failed_clip_indices", []))
+                    success_count = len(clips) - failed_count
+                    if failed_count > 0:
+                        msg = f"完了（成功 {success_count} / 失敗 {failed_count}）"
+                        _append_log(f"⚠️ {msg}")
+                        logger.info("⚠️ %s", msg)
+                    else:
+                        _append_log("✅ 全クリップ処理完了")
+                        logger.info("✅ 全クリップ処理完了")
+                    _write_progress({
+                        "progress": 100,
+                        "message": "全クリップ処理完了" if failed_count == 0 else f"完了（失敗 {failed_count} 件）",
+                        "current_clip": len(clips),
+                        "all_done": True,
+                        "failed_clip_indices": list(_shared_failed.get("failed_clip_indices", [])),
+                    })
                     time.sleep(config.COMPLETION_HOLD_SEC)
                     try:
                         os.remove(progress_file)

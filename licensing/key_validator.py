@@ -67,3 +67,21 @@ def normalize_key(raw: str) -> str:
 def is_well_formed(key: str) -> bool:
     """形式が正しいかどうかの bool 判定（UI のフォーム検証用）"""
     return validate_key_format(key) is not None
+
+
+def mask_key(key: str) -> str:
+    """
+    ログ出力用のマスク表現
+
+    例: "CGFT-STD-A1B2-C3D4-X5Y6" → "CGFT-STD-***-***-X5Y6"
+
+    最後のシグネチャ末尾 4 文字だけ残して、識別目的（同一キーかどうか）には使えるが、
+    キーそのものの再利用には使えないようにする。
+    """
+    if not isinstance(key, str) or not key:
+        return "(empty)"
+    parts = key.split("-")
+    if len(parts) != 5:
+        return "***-INVALID-***"
+    pfx, plan_code, _g1, _g2, sig = parts
+    return f"{pfx}-{plan_code}-***-***-{sig}"

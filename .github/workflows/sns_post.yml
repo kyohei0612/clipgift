@@ -64,6 +64,34 @@ jobs:
       - name: Install dependencies
         run: pip install -r sns_automation/requirements.txt
 
+      - name: Verify required secrets
+        env:
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          X_CONSUMER_KEY: ${{ secrets.X_CONSUMER_KEY }}
+          X_CONSUMER_SECRET: ${{ secrets.X_CONSUMER_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+        run: |
+          # 必須 Secrets が未設定なら早期にわかりやすく失敗させる
+          # （GitHub Settings → Secrets and variables → Actions で登録する）
+          missing=()
+          for name in THREADS_ACCESS_TOKEN THREADS_USER_ID X_CONSUMER_KEY X_CONSUMER_SECRET X_ACCESS_TOKEN X_ACCESS_TOKEN_SECRET BLUESKY_HANDLE BLUESKY_APP_PASSWORD; do
+            value="${!name}"
+            if [ -z "$value" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "::error::❌ 必須 Secrets が未登録です: ${missing[*]}"
+            echo "::error::GitHub リポジトリ → Settings → Secrets and variables → Actions で登録してください"
+            echo "::error::再登録手順: docs/SNS_SECRETS_SETUP.md（または README）参照"
+            exit 1
+          fi
+          echo "✅ 必須 Secrets はすべて登録されています"
+
       - name: Resolve schedule name (cron path)
         id: resolve
         run: |

@@ -15,8 +15,12 @@ class LicensingError(Exception):
 class KeyNotFoundError(LicensingError):
     """サーバー側にキーが存在しない"""
 
-    def __init__(self, message: str = "ライセンスキーが見つかりません"):
-        super().__init__(message, code="key_not_found")
+    def __init__(
+        self,
+        message: str = "ご入力のライセンスキーは登録されておりません。",
+        hint: str = "キーの誤入力でないかご確認ください。問題が解決しない場合はサポートまでお問い合わせください。",
+    ):
+        super().__init__(message, code="key_not_found", hint=hint)
 
 
 class KeyRevokedError(LicensingError):
@@ -24,8 +28,8 @@ class KeyRevokedError(LicensingError):
 
     def __init__(
         self,
-        message: str = "このライセンスキーは失効しています",
-        hint: str = "サポートまでご連絡ください",
+        message: str = "このライセンスキーは無効化されております。",
+        hint: str = "ご不明な点がございましたらサポート窓口までお問い合わせください。",
     ):
         super().__init__(message, code="key_revoked", hint=hint)
 
@@ -35,8 +39,8 @@ class MaxMachinesReachedError(LicensingError):
 
     def __init__(
         self,
-        message: str = "このライセンスは既に上限台数で使用中です",
-        hint: str = "別マシンで使う場合は既存マシンで「ライセンス解除」を実行してください",
+        message: str = "このライセンスは既に最大台数のマシンで使用されております。",
+        hint: str = "別のマシンでご利用になる場合は、既存マシンの設定画面より「ライセンス解除」を行ってください。",
     ):
         super().__init__(message, code="max_machines_reached", hint=hint)
 
@@ -46,8 +50,8 @@ class SignatureInvalidError(LicensingError):
 
     def __init__(
         self,
-        message: str = "ライセンスキーの形式または署名が不正です",
-        hint: str = "キーをコピペし直してください",
+        message: str = "ライセンスキーの形式が正しくありません。",
+        hint: str = "キーを再度ご確認のうえ、コピー＆ペーストでご入力ください。",
     ):
         super().__init__(message, code="signature_invalid", hint=hint)
 
@@ -57,8 +61,8 @@ class NetworkError(LicensingError):
 
     def __init__(
         self,
-        message: str = "ライセンスサーバーに接続できませんでした",
-        hint: str = "インターネット接続を確認してください",
+        message: str = "ライセンスサーバーへの接続に失敗いたしました。",
+        hint: str = "インターネット接続をご確認のうえ、しばらく経ってから再度お試しください。",
     ):
         super().__init__(message, code="network_error", hint=hint)
 
@@ -68,8 +72,8 @@ class CredentialCorruptedError(LicensingError):
 
     def __init__(
         self,
-        message: str = "ライセンス情報が破損しています",
-        hint: str = "再アクティベーションが必要です",
+        message: str = "ライセンス情報の読み込みに失敗いたしました。",
+        hint: str = "お手数ですが、再度ライセンスキーのご入力をお願いいたします。",
     ):
         super().__init__(message, code="credential_corrupted", hint=hint)
 
@@ -79,7 +83,7 @@ class GraceExpiredError(LicensingError):
 
     def __init__(
         self,
-        message: str = "ライセンスの再認証が必要です",
-        hint: str = "インターネット接続を確認して再起動してください",
+        message: str = "ライセンスの再認証期限を超過いたしました。",
+        hint: str = "インターネット接続をご確認のうえ、アプリケーションを再起動してください。",
     ):
         super().__init__(message, code="grace_expired", hint=hint)

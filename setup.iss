@@ -1,5 +1,5 @@
-#define MyAppName "YouTube クリップツール"
-#define MyAppVersion "1.0.48"
+#define MyAppName "ClipGift"
+#define MyAppVersion "1.0.49"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
@@ -13,10 +13,10 @@ AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={localappdata}\YouTubeClipTool
+DefaultDirName={localappdata}\ClipGift
 DefaultGroupName={#MyAppName}
 OutputDir={#SourceDir}\installer_output
-OutputBaseFilename=YouTubeClipTool_Setup
+OutputBaseFilename=ClipGift_Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -51,7 +51,7 @@ Source: "{#SourceDir}\paths.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\config.py"; DestDir: "{app}"; Flags: ignoreversion
 
 ; ライセンス認証モジュール (2026-05 追加、3 プラン制対応)
-Source: "{#SourceDir}\licensing\*"; DestDir: "{app}\licensing"; Flags: ignoreversion recursesubdirs
+Source: "{#SourceDir}\licensing\*"; DestDir: "{app}\licensing"; Flags: ignoreversion recursesubdirs; Excludes: "__pycache__\*,*.pyc"
 
 ; ドキュメント
 Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
