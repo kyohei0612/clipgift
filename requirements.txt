@@ -6,3 +6,11 @@ numpy>=1.26,<3.0
 Pillow>=10.0,<12.0
 imageio-ffmpeg>=0.4.9,<1.0
 pytubefix>=6.0,<10.0
+
+# Twitch VOD ダウンロード（downloader_twitch.py / twitch_video.py / twitch_chat.py）
+# - チャット: GraphQL 直叩き（curl_cffi で Chrome120 TLS 偽装、bot 検知回避）
+# - 動画: HLS パース + セグメント並列 DL + ffmpeg concat（自前実装、yt-dlp 非依存）
+curl_cffi>=0.7,<1.0
+
+# ライセンス認証基盤（licensing/）
+cryptography>=42.0,<46.0

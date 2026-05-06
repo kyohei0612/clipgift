@@ -11,6 +11,7 @@ import requests
 import csv as csv_module
 
 from system_utils import get_ffmpeg_path, get_ffprobe_path
+from chat_filter import should_skip_comment, strip_emojis
 
 # === youtubeChatdl.py インライン ===
 
@@ -174,6 +175,11 @@ def _parse_messages(actions):
                     msg_runs = r.get("message", {}).get("runs", [])
                     msg = "".join([x.get("text", "") for x in msg_runs]).strip()
                     if not msg:
+                        continue
+                    # 絵文字 / ピクトグラムを取り除く（BIZ UDゴシック等で描画失敗するため）
+                    msg = strip_emojis(msg).strip()
+                    # 共通フィルタ: 英数字のみ / Bot / システムメッセージを除外
+                    if should_skip_comment(msg, user=author):
                         continue
                     offset = 0
                     time_text = "0:00"
@@ -675,7 +681,7 @@ def download_video_and_chat(url, base_output_folder, progress_path):
 def main():
     if len(sys.argv) != 4:
         print(
-            "Usage: python download_video.py <YouTube_URL> <output_folder> <progress_path>"
+            "Usage: python downloader.py <YouTube_or_Twitch_URL> <output_folder> <progress_path>"
         )
         sys.exit(1)
 
@@ -688,9 +694,19 @@ def main():
     safe_write_json(progress_path, {"progress": 0, "message": "開始"})
 
     try:
-        download_video_and_chat(
-            video_url, base_output_folder, progress_path
-        )
+        # URL 判別: Twitch なら専用ダウンローダーへ
+        from twitch_chat import is_twitch_url
+        if is_twitch_url(video_url):
+            from downloader_twitch import download_video_and_chat_twitch
+            print(f"[INFO] Twitch URL として処理: {video_url}", flush=True)
+            download_video_and_chat_twitch(video_url, base_output_folder, progress_path)
+        else:
+            # YouTube として扱う前に簡易判定
+            if "youtube.com" not in video_url and "youtu.be" not in video_url:
+                print(f"[WARN] YouTube / Twitch のどちらにも該当しない URL: {video_url}", flush=True)
+                print(f"[WARN] YouTube ロジックで処理を試みますが、失敗する可能性があります", flush=True)
+            print(f"[INFO] YouTube URL として処理: {video_url}", flush=True)
+            download_video_and_chat(video_url, base_output_folder, progress_path)
     except Exception as e:
         safe_write_json(progress_path, {"progress": -1, "message": f"エラー: {e}"})
         print("エラー:", e, flush=True)

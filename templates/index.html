@@ -465,6 +465,10 @@
           <div class="logo-text">Clip<span>Gift</span></div>
         </div>
         <div class="topbar-right">
+          <div id="licenseBadge" style="display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;background:#7c3aed;color:white;font-size:12px;font-weight:600;cursor:pointer;" title="ライセンス情報">
+            <span id="licensePlanLabel">未認証</span>
+            <span id="licenseSupportRemaining" style="font-weight:400;font-size:10px;opacity:0.85;"></span>
+          </div>
           <div id="version-badge">v-.-.-</div>
           <button class="btn-ghost" onclick="manualCheckUpdate()">UPDATE CHECK</button>
         </div>
@@ -472,9 +476,9 @@
 
       <!-- ヒーロー -->
       <div class="hero">
-        <div class="hero-label">YouTube Clip Tool</div>
+        <div class="hero-label">Clip Gift</div>
         <h1>Download.<br><em>Analyze.</em><br>Create.</h1>
-        <p class="hero-sub">YouTube動画とチャットをダウンロードして、盛り上がりシーンを自動抽出します。</p>
+        <p class="hero-sub">YouTube / Twitch の動画とチャットをダウンロードして、盛り上がりシーンを自動抽出します。</p>
       </div>
 
       <!-- メインカード -->
@@ -485,8 +489,8 @@
             type="text"
             id="videoUrlInput"
             class="url-input"
-            placeholder="https://www.youtube.com/watch?v=..."
-            aria-label="YouTube動画URL入力欄"
+            placeholder="YouTube または Twitch VOD URL"
+            aria-label="YouTube / Twitch 動画URL入力欄"
           />
           <button id="downloadBtn" class="btn-primary" type="button">
             DOWNLOAD
@@ -749,6 +753,36 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       fetch("/reset-progress", { method: "POST" }).catch(() => {});
+    });
+
+    // === ライセンスバッジ表示（簡易版、index.html はクリック非対応） ===
+    document.addEventListener("DOMContentLoaded", async () => {
+      const badge = document.getElementById("licenseBadge");
+      const planLabelEl = document.getElementById("licensePlanLabel");
+      const supportRemainingEl = document.getElementById("licenseSupportRemaining");
+      if (!badge) return;
+      try {
+        const res = await fetch("/api/license-info");
+        const info = await res.json();
+        if (!info.authenticated && info.plan_label === "開発モード") {
+          badge.style.display = "none";
+          return;
+        }
+        badge.style.display = "inline-flex";
+        const label = info.extension_enabled ? `⭐ ${info.plan_label}` : info.plan_label;
+        planLabelEl.textContent = label || "ライセンス";
+        if (info.support_remaining_days !== null && info.support_remaining_days !== undefined) {
+          const days = info.support_remaining_days;
+          if (days < 0) supportRemainingEl.textContent = "期限切れ";
+          else if (days < 30) supportRemainingEl.textContent = `あと ${days} 日`;
+          else if (days < 365) supportRemainingEl.textContent = `あと約 ${Math.floor(days / 30)} ヶ月`;
+        }
+        if (!info.support_active && info.authenticated) {
+          badge.style.background = "#d70015";
+        }
+      } catch (e) {
+        badge.style.display = "none";
+      }
     });
     </script>
   </body>

@@ -563,22 +563,47 @@ def process_clips():
     try:
         logger.info("✅ /process_clips エンドポイント呼び出し")
 
-        video_file = request.files.get("video")
-        chat_file = request.files.get("chat")
+        # === パスベースモード（C 案: ローカルファイル直接参照） ===
+        # フォーム値 video_path / chat_path がある場合、そのまま使う
+        # ブラウザでは事前に /api/resolve-local-file で確認済みのパスを送る想定
+        video_path_arg = request.form.get("video_path", "").strip()
+        chat_path_arg = request.form.get("chat_path", "").strip()
+        is_path_mode = bool(video_path_arg and chat_path_arg)
+
         clips_json = request.form.get("clips")
 
-        logger.debug("受信したclips_json文字列: %s", clips_json)
+        if is_path_mode:
+            # path mode: ファイル存在 + Downloads/ 配下チェック
+            downloads_dir = os.path.realpath(str(Path.home() / "Downloads"))
+            for p, label in ((video_path_arg, "動画"), (chat_path_arg, "チャット")):
+                real = os.path.realpath(p)
+                if not real.startswith(downloads_dir + os.sep) and real != downloads_dir:
+                    return jsonify({"error": f"{label}パスが Downloads 配下でない: {p}"}), 400
+                if not os.path.isfile(real):
+                    return jsonify({"error": f"{label}ファイルが存在しない: {p}"}), 400
+            video_file = None
+            chat_file = None
+            logger.info("⚡ path mode: アップロード省略 (video=%s)", video_path_arg)
+        else:
+            # 従来: アップロードモード
+            video_file = request.files.get("video")
+            chat_file = request.files.get("chat")
 
-        if not video_file or not chat_file or not clips_json:
-            return jsonify({"error": "必要なデータが不足しています"}), 400
+            logger.debug("受信したclips_json文字列: %s", clips_json)
 
-        for _f, _exts, _label in (
-            (video_file, ALLOWED_VIDEO_EXTS, "動画ファイル"),
-            (chat_file, ALLOWED_CSV_EXTS, "チャットファイル"),
-        ):
-            err = _validate_upload(_f, _exts, _label)
-            if err is not None:
-                return err
+            if not video_file or not chat_file or not clips_json:
+                return jsonify({"error": "必要なデータが不足しています"}), 400
+
+            for _f, _exts, _label in (
+                (video_file, ALLOWED_VIDEO_EXTS, "動画ファイル"),
+                (chat_file, ALLOWED_CSV_EXTS, "チャットファイル"),
+            ):
+                err = _validate_upload(_f, _exts, _label)
+                if err is not None:
+                    return err
+
+        if not clips_json:
+            return jsonify({"error": "clips データが不足しています"}), 400
 
         clips = json.loads(clips_json)
         font_name = request.form.get("font_name", "")
@@ -599,12 +624,18 @@ def process_clips():
         temp_dir = tempfile.mkdtemp(prefix="clipgen_")
         logger.info("📝 一時ディレクトリ作成: %s", temp_dir)
 
-        video_path = os.path.join(temp_dir, "input.mp4")
-        chat_path = os.path.join(temp_dir, "chat.csv")
         progress_file = os.path.join(temp_dir, "progress.json")
 
-        video_file.save(video_path)
-        chat_file.save(chat_path)
+        if is_path_mode:
+            # ローカルファイルそのまま参照（コピー不要）
+            video_path = video_path_arg
+            chat_path = chat_path_arg
+        else:
+            # アップロードを一時ディレクトリへ保存
+            video_path = os.path.join(temp_dir, "input.mp4")
+            chat_path = os.path.join(temp_dir, "chat.csv")
+            video_file.save(video_path)
+            chat_file.save(chat_path)
 
         logger.info("💡 clipsの数: %d", len(clips))
         logger.debug("clipsの中身: %s", json.dumps(clips, ensure_ascii=False))
@@ -821,10 +852,185 @@ def update_state_route():
     return jsonify(auto_update.get_update_state())
 
 
+# === ローカルファイル逆探知 API（C 案: アップロード省略のため） ===
+
+@app.route("/api/resolve-local-file", methods=["POST"])
+def resolve_local_file_route():
+    """
+    ブラウザが選択したファイルが Downloads/ に既にあるか調べて、見つかればパスを返す
+
+    Request:
+        { "name": "TOPを教えてください.mp4", "size": 4509200000 }
+
+    Response (見つかった場合):
+        { "found": true, "path": "C:/Users/kyohei/Downloads/TOPを教えてください/TOPを教えてください.mp4" }
+
+    Response (見つからない場合):
+        { "found": false }
+
+    セキュリティ: Downloads/ フォルダ内のみ検索（path traversal 防止）
+    """
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "").strip()
+    size = data.get("size")
+
+    if not name or size is None:
+        return jsonify({"found": False, "error": "name と size が必須"}), 400
+
+    downloads_dir = os.path.realpath(str(Path.home() / "Downloads"))
+    if not os.path.isdir(downloads_dir):
+        return jsonify({"found": False})
+
+    try:
+        target_size = int(size)
+    except (TypeError, ValueError):
+        return jsonify({"found": False, "error": "size が整数じゃない"}), 400
+
+    # Downloads/ 配下を再帰的に走査して名前 + サイズ一致を探す
+    for root, _dirs, files in os.walk(downloads_dir):
+        for fname in files:
+            if fname != name:
+                continue
+            full_path = os.path.join(root, fname)
+            try:
+                if os.path.getsize(full_path) != target_size:
+                    continue
+            except OSError:
+                continue
+            # path traversal 防止: realpath が downloads_dir 配下か確認
+            real = os.path.realpath(full_path)
+            if not real.startswith(downloads_dir + os.sep) and real != downloads_dir:
+                continue
+            return jsonify({"found": True, "path": real})
+
+    return jsonify({"found": False})
+
+
+# === ライセンス情報 API（UI 表示用）===
+
+@app.route("/api/license-info", methods=["GET"])
+def license_info_route():
+    """
+    現在のライセンス情報を返す（UI ヘッダー表示用）
+
+    Returns:
+        {
+            "authenticated": bool,
+            "plan": "lite" | "std" | "ext" | None,
+            "plan_label": "ライト版" | "スタンダード版" | "拡張無料版" | "未認証",
+            "support_active": bool,
+            "support_remaining_days": int | None,
+            "extension_enabled": bool,
+            "machine_slot": int,
+            "needs_verification": bool
+        }
+    """
+    try:
+        from licensing import get_plan_gate
+        gate = get_plan_gate()
+        if gate is None:
+            return jsonify({
+                "authenticated": False,
+                "plan": None,
+                "plan_label": "未認証",
+                "support_active": False,
+                "support_remaining_days": None,
+                "extension_enabled": False,
+                "machine_slot": 0,
+                "needs_verification": True,
+            })
+        info = gate.to_display_dict()
+        info["authenticated"] = True
+        return jsonify(info)
+    except ImportError:
+        # 開発時 licensing モジュール未配置
+        return jsonify({
+            "authenticated": False,
+            "plan": None,
+            "plan_label": "開発モード",
+            "support_active": False,
+            "support_remaining_days": None,
+            "extension_enabled": False,
+            "machine_slot": 0,
+            "needs_verification": False,
+        })
+    except Exception as e:
+        logger.error("license_info 取得エラー: %s", e)
+        return jsonify({
+            "authenticated": False,
+            "plan": None,
+            "plan_label": "エラー",
+            "error": str(e),
+        }), 500
+
+
+@app.route("/api/license-deactivate", methods=["POST"])
+def license_deactivate_route():
+    """
+    このマシンのライセンスを解除する（再アクティベーション用）
+
+    解除後、credential ファイルを削除して次回起動時に再認証フローへ。
+    """
+    try:
+        from licensing import activation_client, credential_store, get_plan_gate
+        gate = get_plan_gate()
+        if gate is None:
+            return jsonify({
+                "success": False,
+                "message": "現在ライセンス未認証です",
+            }), 400
+
+        # サーバー側でマシンスロット解放
+        try:
+            remaining = activation_client.deactivate(
+                gate.key, gate.machine_fingerprint
+            )
+        except Exception as e:
+            logger.warning("サーバー側 deactivate 失敗（ローカルは削除する）: %s", e)
+            remaining = None
+
+        # ローカル credential 削除
+        credential_store.delete_credential()
+
+        return jsonify({
+            "success": True,
+            "message": "ライセンスを解除しました。次回起動時に再認証が必要です。",
+            "remaining_slots": remaining,
+        })
+    except ImportError:
+        return jsonify({
+            "success": False,
+            "message": "licensing モジュールが利用できません",
+        }), 503
+    except Exception as e:
+        logger.error("license_deactivate エラー: %s", e)
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
 if __name__ == "__main__":
 
     # 前回の自動更新が中断していた場合は .bak からロールバックする
     auto_update.check_and_recover_from_failed_update()
+
+    # ライセンス認証チェック（NG なら起動中止）
+    # 開発用バイパス: 環境変数 CLIPGIFT_SKIP_LICENSE=1 で認証スキップ
+    # ⚠️ プロダクションリリース時は絶対に設定しない
+    if os.environ.get("CLIPGIFT_SKIP_LICENSE") == "1":
+        logger.warning("⚠️ CLIPGIFT_SKIP_LICENSE=1: ライセンス認証をスキップ（開発専用）")
+    else:
+        try:
+            from licensing import authenticate_or_block
+            _auth_result = authenticate_or_block()
+            if not _auth_result.ok:
+                logger.warning("ライセンス認証 NG: %s", _auth_result.message)
+                sys.exit(0)
+            logger.info("ライセンス認証 OK: plan=%s", _auth_result.plan)
+        except ImportError:
+            # licensing モジュール未配置の開発時はスキップ
+            logger.warning("licensing モジュールが見つかりません、認証スキップ")
+        except Exception as _auth_err:
+            logger.error("ライセンス認証中にエラー: %s", _auth_err)
+            sys.exit(1)
 
     # サーバー起動回数チェック&一時ディレクトリ削除
     check_and_increment_start_count()

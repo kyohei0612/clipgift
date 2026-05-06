@@ -1,5 +1,5 @@
 #define MyAppName "YouTube クリップツール"
-#define MyAppVersion "1.0.45"
+#define MyAppVersion "1.0.46"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
@@ -35,6 +35,10 @@ Source: "{#SourceDir}\installer_assets\{#PythonInstaller}"; DestDir: "{tmp}"; Fl
 ; アプリ本体のPythonファイル
 Source: "{#SourceDir}\app.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\downloader.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\downloader_twitch.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\twitch_chat.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\twitch_video.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\chat_filter.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\mp4inchatnagasi.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\auto_update.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\version.json"; DestDir: "{app}"; Flags: ignoreversion
@@ -45,6 +49,9 @@ Source: "{#SourceDir}\font_manager.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\system_utils.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\paths.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\config.py"; DestDir: "{app}"; Flags: ignoreversion
+
+; ライセンス認証モジュール (2026-05 追加、3 プラン制対応)
+Source: "{#SourceDir}\licensing\*"; DestDir: "{app}\licensing"; Flags: ignoreversion recursesubdirs
 
 ; ドキュメント
 Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -81,7 +88,7 @@ Filename: "{tmp}\{#PythonInstaller}"; Parameters: "/quiet InstallAllUsers=0 Prep
 Filename: "cmd.exe"; Parameters: "/c python -c ""import sys,os; p=sys.executable; pw=p.replace('python.exe','pythonw.exe'); exe=pw if os.path.exists(pw) else p; f=open(os.path.join(sys.argv[1],'python_path.txt'),'w'); f.write(exe); f.close()"" ""{app}\bin"""; StatusMsg: "設定を記録中..."; Flags: waituntilterminated runhidden
 
 ; 必要なライブラリをpipでインストール
-Filename: "cmd.exe"; Parameters: "/c python -m pip install flask werkzeug pillow numpy requests yt-dlp pytubefix fonttools proglog imageio-ffmpeg --quiet"; StatusMsg: "必要なライブラリをインストール中..."; Flags: waituntilterminated runhidden
+Filename: "cmd.exe"; Parameters: "/c python -m pip install flask werkzeug pillow numpy requests pytubefix fonttools proglog imageio-ffmpeg cryptography curl_cffi --quiet"; StatusMsg: "必要なライブラリをインストール中..."; Flags: waituntilterminated runhidden
 
 ; インストール完了後に起動するか聞く
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; Description: "今すぐ起動する"; Flags: nowait postinstall skipifsilent

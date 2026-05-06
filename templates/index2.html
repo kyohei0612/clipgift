@@ -350,7 +350,27 @@ ul li { margin-bottom: 8px; }
           <span>Clip<span style="color:var(--accent)">Gift</span></span>
           <span style="font-weight:400;color:var(--muted);font-size:14px;letter-spacing:2px;">ANALYZER</span>
         </h1>
-        <button id="themeToggle">ライトモード</button>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div id="licenseBadge" style="display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;background:var(--accent);color:white;font-size:13px;font-weight:600;cursor:pointer;" title="ライセンス情報を表示">
+            <span id="licensePlanLabel">未認証</span>
+            <span id="licenseSupportRemaining" style="font-weight:400;font-size:11px;opacity:0.85;"></span>
+          </div>
+          <button id="themeToggle">ライトモード</button>
+        </div>
+      </div>
+
+      <!-- ライセンス情報モーダル -->
+      <div id="licenseModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;">
+        <div style="background:var(--bg);border-radius:12px;padding:32px;max-width:480px;width:90%;box-shadow:0 12px 40px rgba(0,0,0,0.3);">
+          <h2 style="margin-top:0;font-size:20px;">🔑 ライセンス情報</h2>
+          <div id="licenseModalBody" style="line-height:1.8;font-size:14px;">
+            <!-- JS で動的に埋める -->
+          </div>
+          <div style="display:flex;gap:12px;margin-top:24px;justify-content:flex-end;">
+            <button id="licenseDeactivateBtn" type="button" style="padding:10px 20px;border:1px solid #d70015;background:transparent;color:#d70015;border-radius:8px;cursor:pointer;font-size:14px;">このマシンから解除</button>
+            <button id="licenseModalCloseBtn" type="button" style="padding:10px 20px;background:var(--accent);color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;">閉じる</button>
+          </div>
+        </div>
       </div>
 
       <!-- セクション①：ファイル入力 -->
@@ -756,6 +776,126 @@ console.log("✅ DOMContentLoaded後の初期化完了！");
 if (cancelBtn) {
   cancelBtn.disabled = true;
 }
+
+// === ライセンス情報の取得・表示 ===
+(async function initLicenseDisplay() {
+  const badge = document.getElementById("licenseBadge");
+  const planLabelEl = document.getElementById("licensePlanLabel");
+  const supportRemainingEl = document.getElementById("licenseSupportRemaining");
+  const modal = document.getElementById("licenseModal");
+  const modalBody = document.getElementById("licenseModalBody");
+  const closeBtn = document.getElementById("licenseModalCloseBtn");
+  const deactivateBtn = document.getElementById("licenseDeactivateBtn");
+
+  if (!badge) return;
+
+  let licenseInfo = null;
+
+  async function fetchAndRenderLicense() {
+    try {
+      const res = await fetch("/api/license-info");
+      licenseInfo = await res.json();
+
+      if (!licenseInfo.authenticated && licenseInfo.plan_label === "開発モード") {
+        // 開発モード時はバッジ非表示
+        badge.style.display = "none";
+        return;
+      }
+
+      badge.style.display = "inline-flex";
+      planLabelEl.textContent = licenseInfo.plan_label || "ライセンス";
+
+      if (licenseInfo.support_remaining_days !== null && licenseInfo.support_remaining_days !== undefined) {
+        const days = licenseInfo.support_remaining_days;
+        if (days < 0) {
+          supportRemainingEl.textContent = "サポート期限切れ";
+        } else if (days < 30) {
+          supportRemainingEl.textContent = `あと ${days} 日`;
+        } else if (days < 365) {
+          const months = Math.floor(days / 30);
+          supportRemainingEl.textContent = `あと約 ${months} ヶ月`;
+        } else {
+          supportRemainingEl.textContent = "";
+        }
+      }
+
+      // 期限切れ時は赤系
+      if (!licenseInfo.support_active && licenseInfo.authenticated) {
+        badge.style.background = "#d70015";
+      }
+
+      // 拡張機能が使えるならアイコン
+      if (licenseInfo.extension_enabled) {
+        planLabelEl.textContent = `⭐ ${licenseInfo.plan_label}`;
+      }
+    } catch (err) {
+      console.warn("ライセンス情報取得失敗:", err);
+      badge.style.display = "none";
+    }
+  }
+
+  function renderModalBody() {
+    if (!licenseInfo) return;
+    if (!licenseInfo.authenticated) {
+      modalBody.innerHTML = "<p>ライセンス未認証です。</p>";
+      deactivateBtn.style.display = "none";
+      return;
+    }
+    deactivateBtn.style.display = "inline-block";
+
+    const supportRemaining =
+      licenseInfo.support_remaining_days !== null
+        ? `${licenseInfo.support_remaining_days} 日`
+        : "—";
+
+    modalBody.innerHTML = `
+      <p><strong>プラン:</strong> ${licenseInfo.plan_label}</p>
+      <p><strong>マシンスロット:</strong> ${licenseInfo.machine_slot} / 2 台目</p>
+      <p><strong>サポート残:</strong> ${supportRemaining}</p>
+      <p><strong>拡張機能:</strong> ${licenseInfo.extension_enabled ? "✅ 利用可能" : "❌ プラン対象外 or 期限切れ"}</p>
+      <p><strong>次回オンライン認証:</strong> ${licenseInfo.needs_verification ? "今すぐ要再認証" : "30 日以内"}</p>
+      <p style="margin-top:16px;font-size:12px;color:var(--muted);">
+        マシンを買い替える / 別 PC で使う場合は「このマシンから解除」してから新しい PC で再認証してください。
+      </p>
+    `;
+  }
+
+  badge.addEventListener("click", () => {
+    renderModalBody();
+    modal.style.display = "flex";
+  });
+
+  closeBtn.addEventListener("click", () => {
+    modal.style.display = "none";
+  });
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.style.display = "none";
+  });
+
+  deactivateBtn.addEventListener("click", async () => {
+    if (!confirm("このマシンからライセンスを解除します。次回起動時に再認証が必要になります。よろしいですか？")) return;
+    deactivateBtn.disabled = true;
+    deactivateBtn.textContent = "解除中...";
+    try {
+      const res = await fetch("/api/license-deactivate", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        alert("解除完了しました。アプリを再起動して再認証してください。");
+        location.reload();
+      } else {
+        alert("解除失敗: " + (data.message || "不明なエラー"));
+      }
+    } catch (err) {
+      alert("通信エラー: " + err.message);
+    } finally {
+      deactivateBtn.disabled = false;
+      deactivateBtn.textContent = "このマシンから解除";
+    }
+  });
+
+  fetchAndRenderLicense();
+})();
 
 if (cancelBtn) {
   cancelBtn.addEventListener("click", () => {
@@ -1232,9 +1372,42 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     try {
+      // C 案: ローカルファイル逆探知でアップロード省略を試みる
+      // Downloads/ 配下にファイルがあればパスを直接サーバーに渡す（4.5GB のアップロード時間ゼロ）
+      const videoFileObj = videoFile.files[0];
+      const chatFileObj = chatFile.files[0];
+      let videoPath = null;
+      let chatPath = null;
+      try {
+        const [vRes, cRes] = await Promise.all([
+          fetch("/api/resolve-local-file", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: videoFileObj.name, size: videoFileObj.size }),
+          }).then(r => r.json()),
+          fetch("/api/resolve-local-file", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: chatFileObj.name, size: chatFileObj.size }),
+          }).then(r => r.json()),
+        ]);
+        if (vRes.found) videoPath = vRes.path;
+        if (cRes.found) chatPath = cRes.path;
+      } catch (e) {
+        console.warn("ローカルパス逆探知失敗、アップロードモードで続行:", e);
+      }
+
       const formData = new FormData();
-      formData.append("video", videoFile.files[0]);
-      formData.append("chat", chatFile.files[0]);
+      const usePathMode = videoPath && chatPath;
+      if (usePathMode) {
+        console.log("⚡ パスモード: アップロード省略", { videoPath, chatPath });
+        formData.append("video_path", videoPath);
+        formData.append("chat_path", chatPath);
+      } else {
+        console.log("📤 アップロードモード（ファイルが Downloads/ 外）");
+        formData.append("video", videoFileObj);
+        formData.append("chat", chatFileObj);
+      }
       formData.append(
         "clips",
         JSON.stringify(

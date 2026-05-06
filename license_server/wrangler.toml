@@ -1,0 +1,26 @@
+name = "clipgift-license"
+main = "src/index.ts"
+compatibility_date = "2026-05-06"
+
+# Workers KV（無料枠: 1GB / 100k reads / 1k writes per day）
+# 本番では `wrangler kv:namespace create LICENSES` で作成し、ID を貼り付ける
+[[kv_namespaces]]
+binding = "LICENSES"
+id = "REPLACE_WITH_PRODUCTION_KV_ID"
+preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+
+# 環境変数（公開可能なもののみ）
+[vars]
+PRODUCT_PREFIX = "CGFT"
+MAX_MACHINES = "2"
+OFFLINE_GRACE_DAYS = "30"
+HEARTBEAT_INTERVAL_DAYS = "30"
+
+# シークレット（wrangler secret put で登録、コミット禁止）:
+#   HMAC_SECRET                  - キー署名用（32 byte 以上のランダム）
+#   ADMIN_BEARER_TOKEN           - /admin/* エンドポイント用
+#   GMAIL_APP_PASSWORD           - Gmail SMTP 用（メール送信時のみ）
+#   SUPPORT_EMAIL_FROM           - 通知元メールアドレス
+
+[build]
+command = "npm install"
