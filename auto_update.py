@@ -79,24 +79,31 @@ def _github_raw_url(filepath):
     )
 
 
-def _github_api_url(filepath):
-    return (
-        f"https://api.github.com/repos/"
-        f"{GITHUB_OWNER}/{GITHUB_REPO}/contents/{filepath}?ref={GITHUB_BRANCH}"
-    )
+def _read_github_token():
+    """bin/github_token.txt からトークン読込（無ければ None、レート制限緩和用）"""
+    token_path = os.path.join(BASE_DIR, "bin", "github_token.txt")
+    if os.path.exists(token_path):
+        try:
+            with open(token_path, "r", encoding="utf-8") as f:
+                t = f.read().strip()
+            return t or None
+        except Exception:
+            pass
+    return None
 
 
 def _get_all_files(path=""):
-    """GitHubリポジトリのファイル一覧を再帰取得"""
-    url = _github_api_url(path)
+    """GitHub の git tree API で全ファイルを 1 リクエストで列挙（rate limit 回避）"""
+    url = (
+        f"https://api.github.com/repos/"
+        f"{GITHUB_OWNER}/{GITHUB_REPO}/git/trees/{GITHUB_BRANCH}?recursive=1"
+    )
     data = json.loads(_fetch_url(url).decode("utf-8"))
-    files = []
-    for item in data:
-        if item["type"] == "file":
-            files.append(item["path"])
-        elif item["type"] == "dir":
-            files.extend(_get_all_files(item["path"]))
-    return files
+    return [
+        item["path"]
+        for item in data.get("tree", [])
+        if item.get("type") == "blob"
+    ]
 
 
 def _fetch_url(url):
@@ -106,6 +113,9 @@ def _fetch_url(url):
     req.add_header("User-Agent", "youtube-clip-tool-updater")
     req.add_header("Cache-Control", "no-cache")
     req.add_header("Pragma", "no-cache")
+    token = _read_github_token()
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=10) as res:
         return res.read()
 
