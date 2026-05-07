@@ -620,6 +620,8 @@ body.light-mode #waveform-container { background: var(--slate-100); }
             <span id="licensePlanLabel">未認証</span>
             <span id="licenseSupportRemaining" style="font-weight:400;font-size:11px;opacity:0.85;"></span>
           </div>
+          <div id="version-badge" style="font-family:var(--mono,'JetBrains Mono',monospace);font-size:11px;color:var(--text-muted,#94a3b8);letter-spacing:0.5px;padding:4px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface);">v-.-.-</div>
+          <button id="updateCheckBtn" type="button" style="font-family:inherit;font-size:12px;font-weight:500;color:var(--text-secondary);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:6px 14px;cursor:pointer;transition:all 0.15s ease;">UPDATE CHECK</button>
           <button id="themeToggle">ライトモード</button>
           <button id="errorReportBtn" type="button" title="エラー・不具合を報告する" style="background:transparent;border:1px solid var(--brand-500);color:var(--brand-500);box-shadow:none;font-weight:500;padding:7px 14px;border-radius:999px;font-size:12px;cursor:pointer;transition:all 0.15s ease;">🛠 エラー報告</button>
           <button id="appCloseBtn" type="button" title="アプリとこのタブを閉じる" style="background:transparent;border:1px solid var(--error);color:var(--error);box-shadow:none;font-weight:500;padding:7px 14px;border-radius:999px;font-size:12px;cursor:pointer;transition:all 0.15s ease;">✕ 閉じる</button>
@@ -3213,6 +3215,153 @@ function scrollWaveformIfNeeded(currentTime) {
           })
           .catch(() => setTimeout(startHeartbeat, 1000));
       })();
+    </script>
+
+    <!-- 更新オーバーレイ（1P と完全同一） -->
+    <style>
+      #update-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(2, 6, 23, 0.65);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        z-index: 9999;
+        align-items: center;
+        justify-content: center;
+      }
+      .update-card {
+        background: var(--surface-elevated);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-xl);
+        padding: 40px;
+        min-width: 340px;
+        text-align: center;
+        box-shadow: var(--shadow-lg);
+      }
+      .update-icon { font-size: 40px; margin-bottom: 16px; }
+      .update-title { font-size: 20px; font-weight: 800; margin-bottom: 8px; color: var(--text-primary); }
+      .update-msg { font-size: 12px; color: var(--text-muted); font-family: var(--mono, monospace); min-height: 20px; margin-bottom: 24px; }
+      .update-spinner {
+        width: 36px; height: 36px;
+        border: 3px solid var(--border);
+        border-top-color: var(--accent, var(--brand-500));
+        border-radius: 50%;
+        animation: spin .8s linear infinite;
+        margin: 0 auto 24px;
+        display: none;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      #update-close-btn, #update-skip-btn {
+        display: none;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 10px 24px;
+        transition: all .2s;
+      }
+      #update-close-btn {
+        background: linear-gradient(135deg, var(--brand-500), var(--brand-600));
+        color: #fff;
+        border: none;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08), 0 2px 8px rgba(39, 154, 217, 0.18);
+      }
+      #update-close-btn:hover {
+        background: linear-gradient(135deg, var(--brand-400), var(--brand-500));
+        box-shadow: 0 4px 16px rgba(39, 154, 217, .36);
+      }
+      #update-skip-btn { background: transparent; color: var(--text-muted); border: 1px solid var(--border); margin-left: 8px; box-shadow: none; }
+      #update-skip-btn:hover { border-color: var(--text-muted); }
+      #updateCheckBtn:hover {
+        border-color: var(--brand-500);
+        color: var(--brand-500);
+      }
+    </style>
+
+    <div id="update-overlay">
+      <div class="update-card">
+        <div class="update-icon" id="update-icon">◈</div>
+        <div class="update-title" id="update-title">確認中...</div>
+        <div class="update-msg" id="update-msg"></div>
+        <div class="update-spinner" id="update-spinner"></div>
+        <button id="update-close-btn" onclick="closeUpdateOverlay()">閉じる</button>
+        <button id="update-skip-btn" onclick="closeUpdateOverlay()">スキップ</button>
+      </div>
+    </div>
+
+    <script>
+    // === UPDATE CHECK / version-badge（1P と同一ロジック） ===
+    (function() {
+      const overlay  = document.getElementById("update-overlay");
+      const title    = document.getElementById("update-title");
+      const msg      = document.getElementById("update-msg");
+      const icon     = document.getElementById("update-icon");
+      const spinner  = document.getElementById("update-spinner");
+      const closeBtn = document.getElementById("update-close-btn");
+      const skipBtn  = document.getElementById("update-skip-btn");
+
+      // 起動時は version-badge だけ更新（auto-check は 1P 側で実行済みなので走らせない）
+      fetch("/check-update").then(r => r.json()).then(data => {
+        const badge = document.getElementById("version-badge");
+        if (badge && data.local_version) badge.textContent = "v" + data.local_version;
+      }).catch(() => {});
+
+      window.closeUpdateOverlay = function() { overlay.style.display = "none"; };
+
+      window.manualCheckUpdate = function() {
+        overlay.style.display = "flex";
+        icon.textContent = "◈"; title.textContent = "確認中..."; msg.textContent = "";
+        spinner.style.display = "none"; closeBtn.style.display = "none"; skipBtn.style.display = "none";
+        closeBtn.disabled = false;
+        closeBtn.textContent = "閉じる";
+        closeBtn.onclick = closeUpdateOverlay;
+        fetch("/check-update").then(r => r.json()).then(data => {
+          const badge = document.getElementById("version-badge");
+          if (badge && data.local_version) badge.textContent = "v" + data.local_version;
+          if (data.error || !data.has_update) {
+            icon.textContent = "✓"; title.textContent = "最新バージョンです";
+            msg.textContent = data.local_version ? "v" + data.local_version : "";
+            closeBtn.style.display = "inline-block"; return;
+          }
+          icon.textContent = "↻"; title.textContent = "アップデート中...";
+          msg.textContent = "しばらくお待ちください"; spinner.style.display = "block";
+          fetch("/start-update", { method: "POST" }).then(() => pollUpdateState())
+            .catch(() => { icon.textContent = "✕"; title.textContent = "更新に失敗しました"; spinner.style.display = "none"; skipBtn.style.display = "inline-block"; });
+        }).catch(() => closeUpdateOverlay());
+      };
+
+      function pollUpdateState() {
+        const timer = setInterval(() => {
+          fetch("/update-state").then(r => r.json()).then(state => {
+            msg.textContent = state.message;
+            if (state.status === "done") {
+              clearInterval(timer);
+              icon.textContent = "✓";
+              title.textContent = "更新しました";
+              msg.textContent = "下のボタンで再起動して反映してください";
+              spinner.style.display = "none";
+              closeBtn.textContent = "↻ 再起動";
+              closeBtn.style.display = "inline-block";
+              closeBtn.onclick = function () {
+                closeBtn.disabled = true;
+                closeBtn.textContent = "再起動中...";
+                window.__clipgiftInternalNav = true;
+                fetch("/api/restart", { method: "POST" }).catch(() => {});
+                setTimeout(() => location.reload(), 4000);
+              };
+            } else if (state.status === "error") {
+              clearInterval(timer); icon.textContent = "✕"; title.textContent = "更新に失敗しました";
+              spinner.style.display = "none"; skipBtn.style.display = "inline-block";
+            }
+          }).catch(() => clearInterval(timer));
+        }, 800);
+      }
+
+      // ボタン配線
+      const btn = document.getElementById("updateCheckBtn");
+      if (btn) btn.addEventListener("click", () => window.manualCheckUpdate());
+    })();
     </script>
   </body>
 </html>

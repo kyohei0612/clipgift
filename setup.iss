@@ -1,5 +1,5 @@
 #define MyAppName "ClipGift"
-#define MyAppVersion "1.0.64"
+#define MyAppVersion "1.0.65"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
