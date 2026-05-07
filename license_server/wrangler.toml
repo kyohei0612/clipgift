@@ -3,11 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-05-06"
 
 # Workers KV（無料枠: 1GB / 100k reads / 1k writes per day）
-# 本番では `wrangler kv:namespace create LICENSES` で作成し、ID を貼り付ける
+# 2026-05-07 本番作成: clipgift-license-LICENSES
 [[kv_namespaces]]
 binding = "LICENSES"
-id = "REPLACE_WITH_PRODUCTION_KV_ID"
-preview_id = "REPLACE_WITH_PREVIEW_KV_ID"
+id = "a9335879f8054cf9b1ec14719c668985"
 
 # 環境変数（公開可能なもののみ）
 [vars]

@@ -4,7 +4,7 @@
 BOOTH 自動連携が落ちた時の緊急発行 / テスト用 / 特例対応 / プロモコード用に使う。
 
 使い方:
-    python scripts/issue_license.py --plan std --buyer-email user@example.com \\
+    python scripts/issue_license.py --plan single --buyer-email user@example.com \\
         --reason "BOOTH order #1234 manual" --support-months 12
 
 環境変数:

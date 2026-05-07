@@ -1095,6 +1095,121 @@ def license_deactivate_route():
         return jsonify({"success": False, "message": str(e)}), 500
 
 
+@app.route("/report_error", methods=["POST"])
+def report_error_route():
+    """エラー報告ボタンから呼ばれる。Cloudflare Workers /support/report に転送。
+
+    リクエスト JSON:
+      - user_email (任意): 返信を希望する場合のメアド
+      - user_comment (任意): ユーザーが書いた状況説明
+
+    自動収集する情報:
+      - app_version: version.json から
+      - error_log: _process_logs から最新 200 行
+      - license_tail: ライセンス credential から末尾 4 桁
+      - 環境情報: Python / OS / ffmpeg
+    """
+    try:
+        body = request.get_json(silent=True) or {}
+        user_email = (body.get("user_email") or "").strip()
+        user_comment = (body.get("user_comment") or "").strip()
+        attachments = body.get("attachments") or []
+        report_type = (body.get("report_type") or "error").strip().lower()
+        if report_type not in ("error", "request"):
+            report_type = "error"
+
+        # 添付ファイル必須（type=error のみ）
+        if not isinstance(attachments, list):
+            return jsonify({"success": False, "message": "添付ファイル形式が不正です。"}), 400
+
+        if report_type == "error" and len(attachments) == 0:
+            return jsonify({
+                "success": False,
+                "message": "エラー報告にはスクリーンショットの添付が必要です（最低 1 枚、最大 3 枚）。",
+            }), 400
+
+        if len(attachments) > 3:
+            return jsonify({
+                "success": False,
+                "message": "添付ファイルは最大 3 枚までです。",
+            }), 400
+
+        for att in attachments:
+            if not isinstance(att, dict):
+                return jsonify({"success": False, "message": "添付ファイル形式が不正です。"}), 400
+            content_type = att.get("content_type", "")
+            if not content_type.startswith("image/"):
+                return jsonify({
+                    "success": False,
+                    "message": "添付できるのは画像ファイルのみです。",
+                }), 400
+
+        # バージョン取得（auto_update 経由）
+        local_version = auto_update.get_local_version()
+        app_version = local_version.get("version", "unknown")
+
+        # 直近のプロセスログを取得
+        with _process_logs_lock:
+            log_lines = list(_process_logs)
+        error_log = "\n".join(log_lines)
+
+        # ライセンスキー（credential 化された値、なければ空）
+        license_key = ""
+        try:
+            from licensing import credential_store
+            credential = credential_store.load_credential()
+            if credential:
+                license_key = credential.get("key", "")
+        except Exception:
+            # 認証情報取得失敗は致命ではない（末尾なしで送信継続）
+            pass
+
+        # 追加環境情報
+        extra_env: dict = {}
+        try:
+            import imageio_ffmpeg
+            extra_env["ffmpeg_path"] = "<bundled>"
+            extra_env["ffmpeg_pkg"] = imageio_ffmpeg.__version__
+        except Exception:
+            pass
+
+        # support_center 経由で Workers に送信
+        from support_center.error_reporter import report_error, ErrorReportError
+        try:
+            response = report_error(
+                app_version=app_version,
+                license_key=license_key,
+                user_email=user_email,
+                user_comment=user_comment,
+                error_log=error_log,
+                extra_env=extra_env,
+                attachments=attachments,
+                report_type=report_type,
+            )
+            return jsonify({
+                "success": True,
+                "message": "エラー報告を送信しました。サポートチームが内容を確認します。",
+                "report_id": response.get("report_id", ""),
+            })
+        except ErrorReportError as send_err:
+            logger.warning("エラー報告送信失敗: %s", send_err)
+            return jsonify({
+                "success": False,
+                "message": (
+                    "エラー報告の送信に失敗しました。"
+                    "ネットワークをご確認のうえ、しばらく時間を置いて再送信してください。"
+                ),
+            }), 503
+
+    except Exception as e:
+        logger.error("report_error_route 例外: %s", e)
+        logger.error(traceback.format_exc())
+        return jsonify({
+            "success": False,
+            "message": "エラー報告の処理中に内部エラーが発生しました。",
+        }), 500
+
+
 if __name__ == "__main__":
 
     # 前回の自動更新が中断していた場合は .bak からロールバックする

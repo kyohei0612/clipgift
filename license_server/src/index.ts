@@ -2,12 +2,15 @@
  * クリップギフト ライセンス認証サーバー (Cloudflare Workers)
  *
  * エンドポイント:
- *   POST /activate       — 初回アクティベーション
- *   POST /verify         — 30 日ハートビート
- *   POST /deactivate     — マシン解放
- *   POST /admin/issue    — 手動キー発行（Bearer 認証）
- *   POST /admin/revoke   — キー失効（Bearer 認証）
- *   GET  /health         — ヘルスチェック
+ *   POST /activate         — 初回アクティベーション
+ *   POST /verify           — 30 日ハートビート
+ *   POST /deactivate       — マシン解放
+ *   POST /admin/issue      — 手動キー発行（Bearer 認証）
+ *   POST /admin/revoke     — キー失効（Bearer 認証）
+ *   POST /support/report   — エラー報告受付（公開、レート制限あり）
+ *   POST /support/notify   — 修正案レビュー依頼通知（Bearer 認証）
+ *   POST /support/reply    — ユーザー返信送信（Bearer 認証）
+ *   GET  /health           — ヘルスチェック
  */
 
 import type { Env } from "./types";
@@ -15,6 +18,11 @@ import { handleActivate } from "./handlers/activate";
 import { handleVerify } from "./handlers/verify";
 import { handleDeactivate } from "./handlers/deactivate";
 import { handleAdminIssue, handleAdminRevoke } from "./handlers/admin";
+import {
+  handleSupportReport,
+  handleSupportNotify,
+  handleSupportReply,
+} from "./handlers/support";
 import { errorResponse, jsonResponse } from "./utils";
 
 export default {
@@ -62,6 +70,18 @@ export default {
 
       if (url.pathname === "/admin/revoke" && request.method === "POST") {
         return await handleAdminRevoke(request, env);
+      }
+
+      if (url.pathname === "/support/report" && request.method === "POST") {
+        return await handleSupportReport(request, env);
+      }
+
+      if (url.pathname === "/support/notify" && request.method === "POST") {
+        return await handleSupportNotify(request, env);
+      }
+
+      if (url.pathname === "/support/reply" && request.method === "POST") {
+        return await handleSupportReply(request, env);
       }
 
       return errorResponse(

@@ -1,5 +1,5 @@
 #define MyAppName "ClipGift"
-#define MyAppVersion "1.0.63"
+#define MyAppVersion "1.0.64"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
@@ -57,8 +57,14 @@ Source: "{#SourceDir}\system_utils.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\paths.py"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\config.py"; DestDir: "{app}"; Flags: ignoreversion
 
-; ライセンス認証モジュール (2026-05 追加、3 プラン制対応)
+; ライセンス認証モジュール (2026-05 追加、1 プラン制 / 後方互換 LITE/STD/EXT)
 Source: "{#SourceDir}\licensing\*"; DestDir: "{app}\licensing"; Flags: ignoreversion recursesubdirs; Excludes: "__pycache__\*,*.pyc"
+
+; サポートセンター（アプリ側のみ配布。kyohei ローカル運用ファイルは含めない）
+Source: "{#SourceDir}\support_center\__init__.py"; DestDir: "{app}\support_center"; Flags: ignoreversion
+Source: "{#SourceDir}\support_center\config.py"; DestDir: "{app}\support_center"; Flags: ignoreversion
+Source: "{#SourceDir}\support_center\error_reporter.py"; DestDir: "{app}\support_center"; Flags: ignoreversion
+Source: "{#SourceDir}\support_center\pii_masker.py"; DestDir: "{app}\support_center"; Flags: ignoreversion
 
 ; ドキュメント
 Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion

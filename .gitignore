@@ -26,3 +26,15 @@ sns_automation/.history.json
 # ライセンス発行履歴・メール文（購入者の個人情報を含む、絶対に公開しない）
 scripts/issued_keys/
 scripts/.issued_keys.jsonl
+
+# サポートセンター（受信メール本文・修正案・返信ログには個人情報を含む可能性）
+support_center/.env
+support_center/.env.local
+support_center/incoming/
+
+# Cloudflare Workers ローカル開発（node_modules はサイズ大、コミット禁止）
+license_server/node_modules/
+license_server/.wrangler/
+
+# ローカル一時ファイル
+dl_progress.json

@@ -601,6 +601,7 @@ body.light-mode #waveform-container { background: var(--slate-100); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
 </style>
+  <script src="/static/theme.js" defer></script>
   </head>
   <body>
     <div class="container">
@@ -620,9 +621,133 @@ body.light-mode #waveform-container { background: var(--slate-100); }
             <span id="licenseSupportRemaining" style="font-weight:400;font-size:11px;opacity:0.85;"></span>
           </div>
           <button id="themeToggle">ライトモード</button>
-          <button id="appCloseBtn" type="button" title="アプリを終了" style="background:transparent;border:1px solid var(--error);color:var(--error);box-shadow:none;font-weight:500;padding:7px 14px;border-radius:999px;font-size:12px;">✕ 閉じる</button>
+          <button id="errorReportBtn" type="button" title="エラー・不具合を報告する" style="background:transparent;border:1px solid var(--brand-500);color:var(--brand-500);box-shadow:none;font-weight:500;padding:7px 14px;border-radius:999px;font-size:12px;cursor:pointer;transition:all 0.15s ease;">🛠 エラー報告</button>
+          <button id="appCloseBtn" type="button" title="アプリとこのタブを閉じる" style="background:transparent;border:1px solid var(--error);color:var(--error);box-shadow:none;font-weight:500;padding:7px 14px;border-radius:999px;font-size:12px;cursor:pointer;transition:all 0.15s ease;">✕ 閉じる</button>
         </div>
       </div>
+
+      <style>
+        #errorReportBtn:hover {
+          background: rgba(39, 154, 217, 0.12) !important;
+          transform: translateY(-1px);
+          box-shadow: 0 2px 8px rgba(39, 154, 217, 0.25);
+        }
+        #appCloseBtn:hover {
+          background: rgba(215, 0, 21, 0.12) !important;
+          transform: translateY(-1px);
+          box-shadow: 0 2px 8px rgba(215, 0, 21, 0.25);
+        }
+        #errorReportBtn:active, #appCloseBtn:active {
+          transform: translateY(0);
+        }
+        #errorReportBtn:disabled, #appCloseBtn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+      </style>
+
+      <!-- エラー報告モーダル -->
+      <div id="errorReportModal" style="display:none;position:fixed;inset:0;background:rgba(2,6,23,0.65);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:9999;align-items:center;justify-content:center;">
+        <div style="background:var(--surface-elevated);border:1px solid var(--border);border-radius:var(--radius-xl);padding:32px;max-width:560px;width:92%;box-shadow:var(--shadow-lg);">
+          <h2 style="margin-top:0;font-size:20px;border-left:3px solid var(--brand-500);padding-left:12px;">🛠 サポートに連絡</h2>
+          <p style="font-size:13px;line-height:1.7;color:var(--text-secondary);margin-top:0;">
+            ご不便をおかけして申し訳ありません。<br>
+            送信ボタンを押すと、最近のアプリログ・バージョン・OS 情報が
+            サポートセンターへ送信されます（個人を特定する情報は自動的にマスクされます）。
+          </p>
+
+          <div style="margin-top:20px;">
+            <label for="errorReportType" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">
+              種別 <span style="color:var(--error);font-weight:700;">必須</span>
+            </label>
+            <select id="errorReportType" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font-size:13px;">
+              <option value="error">🔴 エラー報告（不具合・バグ）— スクリーンショット必須</option>
+              <option value="request">🟢 ご要望・お問い合わせ — スクリーンショット任意</option>
+            </select>
+          </div>
+
+          <div style="margin-top:20px;">
+            <label for="errorReportEmail" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">
+              返信先メールアドレス（任意）
+            </label>
+            <input
+              id="errorReportEmail"
+              type="email"
+              placeholder="例: you@example.com（修正版が出たら通知が欲しい場合のみ）"
+              style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font-size:13px;"
+            />
+            <p style="font-size:11px;color:var(--text-secondary);margin:6px 0 0 0;">
+              空欄でも送信できます。修正版がリリースされたタイミングで自動更新されます。
+            </p>
+          </div>
+
+          <div style="margin-top:18px;">
+            <label for="errorReportComment" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">
+              発生状況のメモ（任意）
+            </label>
+            <textarea
+              id="errorReportComment"
+              rows="4"
+              placeholder="どんな操作をしたときに、何が起きましたか？（例：『動画 URL を貼り付けて開始ボタンを押したら、進捗が 30% で止まりました』など）"
+              style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font-size:13px;resize:vertical;font-family:inherit;"
+            ></textarea>
+          </div>
+
+          <div style="margin-top:18px;">
+            <label for="errorReportFiles" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">
+              スクリーンショット <span id="errorReportFilesRequired" style="color:var(--error);font-weight:700;">必須</span>（最大 3 枚 / 各 5MB / 画像のみ）
+            </label>
+            <input
+              id="errorReportFiles"
+              type="file"
+              accept="image/*"
+              multiple
+              style="width:100%;font-size:13px;color:var(--text-primary);"
+            />
+            <p style="font-size:11px;color:var(--text-secondary);margin:6px 0 0 0;">
+              💡 撮り方：<strong>Win + Shift + S</strong> で範囲選択スクショ → そのままファイル保存して選択
+            </p>
+            <div id="errorReportPreview" style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;"></div>
+          </div>
+
+          <div id="errorReportFeedback" style="display:none;margin-top:14px;padding:10px 12px;border-radius:var(--radius-md);font-size:13px;"></div>
+
+          <div style="display:flex;gap:10px;margin-top:24px;justify-content:space-between;align-items:center;">
+            <button id="errorReportResetBtn" type="button" style="padding:10px 18px;font-size:12px;background:transparent;color:var(--text-secondary);border:1px dashed var(--border);border-radius:999px;font-weight:500;cursor:pointer;transition:all 0.15s ease;">↻ 最初から書き直す</button>
+            <div style="display:flex;gap:10px;">
+              <button id="errorReportCancelBtn" type="button" style="padding:10px 24px;font-size:13px;background:transparent;color:var(--text-secondary);border:1px solid var(--border);border-radius:999px;font-weight:500;cursor:pointer;transition:all 0.15s ease;">キャンセル</button>
+              <button id="errorReportSendBtn" type="button" disabled style="padding:10px 24px;font-size:13px;background:var(--brand-500);color:#fff;border:none;border-radius:999px;font-weight:600;cursor:pointer;opacity:0.5;transition:all 0.15s ease;">送信する</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        #errorReportResetBtn:hover:not(:disabled) {
+          background: rgba(255, 165, 0, 0.08);
+          color: var(--text-primary);
+          border-style: solid;
+          border-color: var(--text-secondary);
+        }
+        #errorReportCancelBtn:hover:not(:disabled) {
+          background: var(--surface);
+          color: var(--text-primary);
+          border-color: var(--text-secondary);
+        }
+        #errorReportSendBtn:hover:not(:disabled) {
+          background: var(--brand-600, #1d8acb);
+          transform: translateY(-1px);
+          box-shadow: 0 2px 8px rgba(39, 154, 217, 0.3);
+        }
+        #errorReportResetBtn:disabled,
+        #errorReportCancelBtn:disabled,
+        #errorReportSendBtn:disabled {
+          opacity: 0.4 !important;
+          cursor: not-allowed !important;
+          transform: none !important;
+          box-shadow: none !important;
+        }
+      </style>
 
       <!-- ライセンス情報モーダル -->
       <div id="licenseModal" style="display:none;position:fixed;inset:0;background:rgba(2,6,23,0.65);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:9999;align-items:center;justify-content:center;">
@@ -959,37 +1084,7 @@ const modalOverlay = document.getElementById("modalOverlay");
 const modalCloseBtn = document.getElementById("modalCloseBtn");
 const toggleBtn = document.getElementById("themeToggle");
 
-// 🎨 ダークモードの初期化処理
-const savedTheme = localStorage.getItem("theme");
-const prefersDark =
-  window.matchMedia &&
-  window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-if (savedTheme === "dark" || (!savedTheme && prefersDark)) {
-  document.body.classList.add("dark-mode");
-  console.log("🌙 ダークモードを適用（初期化）");
-} else {
-  console.log("🌞 ライトモードを適用（初期化）");
-}
-
-// 🌗 テーマ切り替えボタンのイベント
-if (toggleBtn) {
-  toggleBtn.addEventListener("click", () => {
-    const isDark = document.body.classList.toggle("dark-mode");
-    localStorage.setItem("theme", isDark ? "dark" : "light");
-    console.log(`🌗 テーマを${isDark ? "ダーク" : "ライト"}モードに切り替えました`);
-  });
-} else {
-  console.warn("⚠️ テーマ切替ボタン（toggleBtn）が見つかりませんでした");
-}
-
-
-toggleBtn.addEventListener("click", () => {
-  document.body.classList.toggle("dark-mode");
-  const isDark = document.body.classList.contains("dark-mode");
-  console.log("🌗 ダークモード切り替え:", isDark);
-  localStorage.setItem("theme", isDark ? "dark" : "light");
-});
+// 🎨 テーマ管理は /static/theme.js（共通）に移管。ここでは何もしない。
 
 let chatPath = "",
   videoPath = "",
@@ -1044,7 +1139,45 @@ if (cancelBtn) {
   cancelBtn.disabled = true;
 }
 
-// === 閉じるボタン（明示的にサーバー終了）===
+// === 離脱防止ダイアログ（タブ閉じ / 別サイト遷移時に確認）===
+window.__clipgiftInternalNav = false;
+window.addEventListener("beforeunload", (e) => {
+  if (window.__clipgiftInternalNav) return;
+  e.preventDefault();
+  e.returnValue = "クリップギフトを終了しますか？\n（処理中の作業は中断されます）";
+  return e.returnValue;
+});
+
+// 内部リンク / 内部遷移ボタンクリック時はダイアログ抑制
+document.addEventListener("DOMContentLoaded", () => {
+  // <a href="/...">
+  document.querySelectorAll('a[href]').forEach((a) => {
+    const href = a.getAttribute("href") || "";
+    if (
+      href.startsWith("/") ||
+      href.startsWith("#") ||
+      href.startsWith(window.location.origin)
+    ) {
+      a.addEventListener("click", () => {
+        window.__clipgiftInternalNav = true;
+        setTimeout(() => { window.__clipgiftInternalNav = false; }, 5000);
+      });
+    }
+  });
+  // <button onclick="location.href='/...'"> も拾う（capture で先に実行）
+  document.querySelectorAll('button[onclick]').forEach((btn) => {
+    const onclick = btn.getAttribute("onclick") || "";
+    if (/location\.href\s*=\s*['"]\/[^'"]*['"]/.test(onclick) ||
+        /location\.href\s*=\s*['"]#/.test(onclick)) {
+      btn.addEventListener("click", () => {
+        window.__clipgiftInternalNav = true;
+        setTimeout(() => { window.__clipgiftInternalNav = false; }, 5000);
+      }, true);  // capture フェーズで先に実行
+    }
+  });
+});
+
+// === 閉じるボタン（タブ閉じる試行 + サーバー終了）===
 (function initAppCloseButton() {
   const btn = document.getElementById("appCloseBtn");
   if (!btn) return;
@@ -1052,14 +1185,20 @@ if (cancelBtn) {
     if (!confirm("クリップギフトを閉じますか？\n（処理中の作業は中断されます）")) return;
     btn.disabled = true;
     btn.textContent = "終了中...";
+    window.__clipgiftInternalNav = true;  // 離脱ダイアログ抑制
     try {
       await fetch("/api/shutdown", { method: "POST" });
     } catch (e) {
       // サーバー終了で接続切れるのは想定内
     }
-    document.body.innerHTML = "<div style='padding:80px;text-align:center;font-size:18px;color:#888;'>クリップギフトを終了しました。<br>このタブは閉じて構いません。</div>";
+    // タブを閉じる試行（window.open で開いたものなら閉じる、ダメな環境ではメッセージ表示）
+    try { window.close(); } catch (e) {}
+    setTimeout(() => {
+      document.body.innerHTML = "<div style='padding:80px;text-align:center;font-size:18px;color:#888;'>クリップギフトを終了しました。<br>このタブは × で閉じてください。</div>";
+    }, 600);
   });
 })();
+
 
 // === ライセンス情報の取得・表示 ===
 (async function initLicenseDisplay() {
@@ -1179,6 +1318,267 @@ if (cancelBtn) {
   });
 
   fetchAndRenderLicense();
+})();
+
+// === グローバルエラーキャプチャ（サーバー閉じるまで保持）===
+window.__clipgiftLastError = null;
+window.addEventListener("error", (e) => {
+  const msg = `[JS Error] ${e.message}\n  at ${e.filename}:${e.lineno}:${e.colno}`;
+  const stack = e.error && e.error.stack ? "\n" + e.error.stack : "";
+  window.__clipgiftLastError = msg + stack;
+});
+window.addEventListener("unhandledrejection", (e) => {
+  window.__clipgiftLastError = `[Promise Error] ${e.reason}`;
+});
+
+// === エラー報告モーダル ===
+(function initErrorReportModal() {
+  const openBtn = document.getElementById("errorReportBtn");
+  const modal = document.getElementById("errorReportModal");
+  const cancelBtn = document.getElementById("errorReportCancelBtn");
+  const resetBtn = document.getElementById("errorReportResetBtn");
+  const sendBtn = document.getElementById("errorReportSendBtn");
+  const typeSelect = document.getElementById("errorReportType");
+  const emailInput = document.getElementById("errorReportEmail");
+  const commentInput = document.getElementById("errorReportComment");
+  const filesInput = document.getElementById("errorReportFiles");
+  const filesRequiredLabel = document.getElementById("errorReportFilesRequired");
+  const previewBox = document.getElementById("errorReportPreview");
+  const feedback = document.getElementById("errorReportFeedback");
+
+  if (!openBtn || !modal) return;
+
+  const MAX_FILES = 3;
+  const MAX_SIZE_BYTES = 5 * 1024 * 1024;
+  let attachmentsCache = [];
+
+  function isErrorType() {
+    return (typeSelect && typeSelect.value === "request") ? false : true;
+  }
+  function updateRequiredHint() {
+    if (filesRequiredLabel) {
+      filesRequiredLabel.textContent = isErrorType() ? "必須" : "任意";
+      filesRequiredLabel.style.color = isErrorType() ? "var(--error)" : "var(--text-secondary)";
+    }
+    refreshSendButton();
+  }
+  function refreshSendButton() {
+    if (isErrorType()) {
+      setSendEnabled(attachmentsCache.length > 0);
+    } else {
+      setSendEnabled(true); // 要望は画像なしでも送れる
+    }
+  }
+  if (typeSelect) typeSelect.addEventListener("change", updateRequiredHint);
+
+  function showFeedback(message, isError) {
+    feedback.style.display = "block";
+    feedback.textContent = message;
+    feedback.style.background = isError ? "rgba(215,0,21,0.12)" : "rgba(39,154,217,0.12)";
+    feedback.style.color = isError ? "var(--error)" : "var(--brand-500)";
+  }
+  function hideFeedback() {
+    feedback.style.display = "none";
+    feedback.textContent = "";
+  }
+  function setSendEnabled(enabled) {
+    sendBtn.disabled = !enabled;
+    sendBtn.style.opacity = enabled ? "1" : "0.5";
+    sendBtn.style.cursor = enabled ? "pointer" : "not-allowed";
+  }
+  function resetForm({ keepCapturedError = true } = {}) {
+    if (typeSelect) typeSelect.value = "error";
+    emailInput.value = "";
+    commentInput.value = "";
+    filesInput.value = "";
+    previewBox.innerHTML = "";
+    attachmentsCache = [];
+    hideFeedback();
+    sendBtn.textContent = "送信する";
+    cancelBtn.disabled = false;
+    resetBtn.disabled = false;
+    // モーダル開いた時のエラー自動入力
+    if (keepCapturedError && window.__clipgiftLastError) {
+      commentInput.value =
+        "【検出された直近のエラー】\n" +
+        window.__clipgiftLastError +
+        "\n\n【発生状況・追加情報（任意）】\n";
+    }
+    updateRequiredHint();  // 既定: error → 必須・disabled
+  }
+
+  function readFileAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result || "";
+        const base64 = String(result).split(",")[1] || "";
+        resolve(base64);
+      };
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList || []);
+    previewBox.innerHTML = "";
+    attachmentsCache = [];
+
+    if (files.length === 0) {
+      setSendEnabled(false);
+      return;
+    }
+    if (files.length > MAX_FILES) {
+      showFeedback("画像は最大 " + MAX_FILES + " 枚までです。", true);
+      filesInput.value = "";
+      setSendEnabled(false);
+      return;
+    }
+    for (const f of files) {
+      if (!f.type.startsWith("image/")) {
+        showFeedback("画像ファイルのみ添付できます: " + f.name, true);
+        filesInput.value = "";
+        setSendEnabled(false);
+        return;
+      }
+      if (f.size > MAX_SIZE_BYTES) {
+        showFeedback(f.name + " が 5MB を超えています。", true);
+        filesInput.value = "";
+        setSendEnabled(false);
+        return;
+      }
+    }
+    hideFeedback();
+
+    for (const f of files) {
+      const base64 = await readFileAsBase64(f);
+      attachmentsCache.push({
+        filename: f.name,
+        content_base64: base64,
+        content_type: f.type,
+      });
+      const img = document.createElement("img");
+      img.src = "data:" + f.type + ";base64," + base64;
+      img.alt = f.name;
+      img.style.cssText = "width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--border);";
+      previewBox.appendChild(img);
+    }
+    setSendEnabled(true);
+  }
+
+  filesInput.addEventListener("change", (e) => {
+    handleFiles(e.target.files);
+  });
+
+  openBtn.addEventListener("click", () => {
+    resetForm();
+    modal.style.display = "flex";
+  });
+
+  cancelBtn.addEventListener("click", () => {
+    if (cancelBtn.disabled) return;
+    modal.style.display = "none";
+  });
+
+  resetBtn.addEventListener("click", () => {
+    if (resetBtn.disabled) return;
+    if (!confirm("入力内容と添付ファイルをすべてリセットしますか？\n（検出された直近のエラーログも消えます）")) return;
+    window.__clipgiftLastError = null;
+    resetForm({ keepCapturedError: false });
+  });
+
+  // 送信中フラグ（二重保険）
+  let __isSubmitting = false;
+
+  modal.addEventListener("click", (e) => {
+    if (__isSubmitting) return;  // 送信中は完全ブロック
+    if (e.target === modal && !cancelBtn.disabled) modal.style.display = "none";
+  });
+  // ESC キーでの閉じも送信中は無効化
+  document.addEventListener("keydown", (e) => {
+    if (__isSubmitting) return;
+    if (e.key === "Escape" && modal.style.display === "flex" && !cancelBtn.disabled) {
+      modal.style.display = "none";
+    }
+  });
+
+  // 送信中フラグの管理を sendBtn のイベントから制御
+  // （後続の sendBtn.addEventListener で __isSubmitting を更新する）
+  window.__clipgiftSetSubmitting = (v) => { __isSubmitting = v; };
+
+  sendBtn.addEventListener("click", async () => {
+    const email = (emailInput.value || "").trim();
+    const comment = (commentInput.value || "").trim();
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showFeedback("メールアドレスの形式をご確認ください。", true);
+      return;
+    }
+    if (isErrorType() && attachmentsCache.length === 0) {
+      showFeedback("エラー報告にはスクリーンショットを 1 枚以上添付してください。", true);
+      return;
+    }
+
+    setSendEnabled(false);
+    cancelBtn.disabled = true;
+    resetBtn.disabled = true;
+    sendBtn.textContent = "送信中...";
+    window.__clipgiftSetSubmitting(true);  // 送信中フラグ ON（背景クリック・ESC 完全ブロック）
+    modal.style.background = "rgba(2,6,23,0.85)";
+    modal.style.cursor = "wait";
+    hideFeedback();
+
+    try {
+      const res = await fetch("/report_error", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_email: email,
+          user_comment: comment,
+          attachments: attachmentsCache,
+          report_type: isErrorType() ? "error" : "request",
+        }),
+      });
+      const data = await res.json();
+
+      // 送信終了 → 視覚フィードバック復元 + フラグ OFF
+      modal.style.background = "rgba(2,6,23,0.65)";
+      modal.style.cursor = "";
+      window.__clipgiftSetSubmitting(false);
+
+      if (data.success) {
+        showFeedback(
+          data.message ||
+            "エラー報告を送信しました。サポートチームが内容を確認します。",
+          false
+        );
+        cancelBtn.disabled = false;
+        resetBtn.disabled = false;
+        setTimeout(() => {
+          modal.style.display = "none";
+        }, 3000);
+      } else {
+        showFeedback(
+          data.message || "送信に失敗しました。時間を置いて再度お試しください。",
+          true
+        );
+        setSendEnabled(true);
+        cancelBtn.disabled = false;
+        resetBtn.disabled = false;
+        sendBtn.textContent = "送信する";
+      }
+    } catch (err) {
+      modal.style.background = "rgba(2,6,23,0.65)";
+      modal.style.cursor = "";
+      window.__clipgiftSetSubmitting(false);
+      showFeedback("通信エラーが発生しました: " + err.message, true);
+      setSendEnabled(true);
+      cancelBtn.disabled = false;
+      resetBtn.disabled = false;
+      sendBtn.textContent = "送信する";
+    }
+  });
 })();
 
 if (cancelBtn) {

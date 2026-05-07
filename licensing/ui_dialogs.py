@@ -156,7 +156,8 @@ ACTIVATION_HTML = """<!DOCTYPE html>
 
         // サーバー側 key_validator.py と同じセット
         const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-        // Phase 1: 新規発行は STD のみ。LITE / EXT は後方互換で受理。
+        // Phase 1: プラン名は "single" 1 種のみ。キー内部コードは STD で発行する。
+        // LITE / EXT は旧 3 プラン制時代のキーを後方互換受理するために残す。
         const VALID_PLANS = ['LITE', 'STD', 'EXT'];
 
         function showError(msg) {

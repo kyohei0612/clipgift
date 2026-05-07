@@ -32,6 +32,16 @@ EXCLUDE_FILES = {
     "bin/last_font.json",
     "server_start_count.txt",
     "version.json",
+    # サポートセンター: kyohei ローカル運用専用（エンドユーザーには不要）
+    "support_center/mail_watcher.py",
+    "support_center/claude_runner.py",
+    "support_center/notify_kyohei.py",
+    "support_center/reply_user.py",
+    "support_center/state_machine.py",
+    "scripts/watch_support_mail.py",
+    "scripts/watch_support_idle.py",
+    "scripts/reply_user.py",
+    "scripts/configure_support_task.ps1",
 }
 
 # 製品配布物以外（マーケティングツール・CI・組織管理・環境変数）
@@ -43,6 +53,9 @@ EXCLUDE_PREFIXES = (
     "sns_automation/",
     ".env",
     ".gitignore",
+    # サポートセンター kyohei ローカル運用ファイル
+    "support_center/incoming/",
+    "support_center/.env",
 )
 
 
