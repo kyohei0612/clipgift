@@ -198,8 +198,9 @@ def restart_route():
             # これで多重起動防止に引っかからず確実に立ち上がる
             bat_lines = [
                 "@echo off",
+                "timeout /t 2 /nobreak > nul",
+                f'for /f "tokens=5" %%a in (\'netstat -ano ^| findstr ":{port} " ^| findstr "LISTENING"\') do taskkill /F /PID %%a >nul 2>&1',
                 "timeout /t 1 /nobreak > nul",
-                f'for /f "tokens=5" %%a in (\'netstat -ano ^| findstr ":{port}.*LISTENING"\') do taskkill /F /PID %%a >nul 2>&1',
                 f'start "" /b "{python_exe}" "{app_py}"',
                 "exit /b 0",
             ]
