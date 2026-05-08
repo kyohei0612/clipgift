@@ -124,10 +124,17 @@ body::before {
 .container {
   position: relative;
   z-index: 1;
-  max-width: 920px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 36px 24px 96px;
 }
+/* ヘッダーは container の幅いっぱい、メインコンテンツは 920px に絞る */
+.container > .page-header { max-width: 100%; }
+.container > .content,
+.container > main,
+.container > .panel-grid,
+.container > .scene-list,
+.container > .controls { max-width: 920px; margin-left: auto; margin-right: auto; }
 
 /* === Page Header === */
 .page-header {
@@ -3348,7 +3355,7 @@ function scrollWaveformIfNeeded(currentTime) {
                 closeBtn.textContent = "再起動中...";
                 window.__clipgiftInternalNav = true;
                 fetch("/api/restart", { method: "POST" }).catch(() => {});
-                setTimeout(() => location.reload(), 4000);
+                setTimeout(() => location.reload(), 6000);
               };
             } else if (state.status === "error") {
               clearInterval(timer); icon.textContent = "✕"; title.textContent = "更新に失敗しました";

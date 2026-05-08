@@ -201,6 +201,7 @@ def restart_route():
                 "timeout /t 2 /nobreak > nul",
                 f'for /f "tokens=5" %%a in (\'netstat -ano ^| findstr ":{port} " ^| findstr "LISTENING"\') do taskkill /F /PID %%a >nul 2>&1',
                 "timeout /t 1 /nobreak > nul",
+                "set LAUNCHED_BY_RESTART=1",
                 f'start "" /b "{python_exe}" "{app_py}"',
                 "exit /b 0",
             ]
@@ -1267,8 +1268,12 @@ if __name__ == "__main__":
             webbrowser.open(f"http://{config.SERVER_HOST}:{config.SERVER_PORT}")
         sys.exit(0)
 
-    # vbs経由でない（コマンドライン直接起動）場合はブラウザを開く
-    if os.environ.get("LAUNCHED_BY_VBS") != "1":
+    # vbs経由 / 再起動経由でない（コマンドライン直接起動）場合はブラウザを開く
+    # LAUNCHED_BY_RESTART=1 の場合は古いタブが location.reload() で接続するので新タブ不要
+    if (
+        os.environ.get("LAUNCHED_BY_VBS") != "1"
+        and os.environ.get("LAUNCHED_BY_RESTART") != "1"
+    ):
         import webbrowser
         import threading
         def _open_browser():

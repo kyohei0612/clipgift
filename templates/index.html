@@ -132,10 +132,13 @@
       .shell {
         position: relative;
         z-index: 1;
-        max-width: 800px;
+        max-width: 1200px;
         margin: 0 auto;
         padding: 0 24px 96px;
       }
+      /* メインの解析カード等は読みやすさのため中央 800px に絞る */
+      .shell > .topbar { max-width: 100%; }
+      .shell > main, .shell > .content { max-width: 800px; margin: 0 auto; }
 
       /* ── トップバー ── */
       .topbar {
@@ -1008,7 +1011,7 @@
                 closeBtn.textContent = "再起動中...";
                 window.__clipgiftInternalNav = true;
                 fetch("/api/restart", { method: "POST" }).catch(() => {});
-                setTimeout(() => location.reload(), 4000);
+                setTimeout(() => location.reload(), 6000);
               };
             } else if (state.status === "error") {
               clearInterval(timer); icon.textContent = "✕"; title.textContent = "更新に失敗しました";
