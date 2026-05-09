@@ -5,7 +5,11 @@ bin/github_token.txt
 bin/last_font.json
 bin/python_path.txt
 installer_output/
-installer_assets/
+# installer_assets/ は親ごと除外せず、機密・大容量ファイルだけ個別除外
+# （ClipGiftLog.ico / README.txt / LICENSE.txt は配布物として追跡したい）
+installer_assets/python-3.10.0-amd64.exe
+installer_assets/github_token.txt
+installer_assets/*.exe
 *.bak
 server_start_count.txt
 __pycache__/

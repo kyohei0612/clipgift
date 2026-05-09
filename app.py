@@ -1241,6 +1241,21 @@ if __name__ == "__main__":
     # サーバー起動回数チェック&一時ディレクトリ削除
     check_and_increment_start_count()
 
+    # ClipGiftLog.ico の自動復元（消失していたら installer_assets から復元）
+    # 過去にショートカットアイコン参照エラーが発生したため起動時に保証する
+    try:
+        _icon_target = os.path.join(BASE_DIR, "ClipGiftLog.ico")
+        if not os.path.exists(_icon_target):
+            _icon_source = os.path.join(BASE_DIR, "installer_assets", "ClipGiftLog.ico")
+            if os.path.exists(_icon_source):
+                import shutil as _sh
+                _sh.copy2(_icon_source, _icon_target)
+                logger.info("ClipGiftLog.ico を installer_assets から復元しました")
+            else:
+                logger.warning("ClipGiftLog.ico が消失していますが、復元元も見つかりません")
+    except Exception as _e:
+        logger.warning("ClipGiftLog.ico の復元に失敗: %s", _e)
+
     # BASE_DIR直下の不要なprogress.jsonを削除
     stale_progress = os.path.join(BASE_DIR, "progress.json")
     if os.path.exists(stale_progress):
