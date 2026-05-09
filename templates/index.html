@@ -1381,6 +1381,19 @@
           showFeedback("エラー報告にはスクリーンショットを 1 枚以上添付してください。", true);
           return;
         }
+        // 送信前の明示的同意確認（プライバシー配慮）
+        const consentMsg = isErrorType()
+          ? "以下の情報を ClipGift サポートチームに送信します：\n\n" +
+            "・エラーログ（ユーザー名・パス・ライセンスキー等は自動マスク済）\n" +
+            "・添付スクリーンショット\n" +
+            "・コメント欄に入力した内容\n" +
+            "・連絡用メールアドレス（記入時のみ）\n\n" +
+            "送信してよろしいですか？"
+          : "以下の内容を ClipGift サポートチームに送信します：\n\n" +
+            "・コメント欄に入力したご要望\n" +
+            "・連絡用メールアドレス（記入時のみ）\n\n" +
+            "送信してよろしいですか？";
+        if (!confirm(consentMsg)) return;
         setSendEnabled(false);
         cancelBtn.disabled = true;
         resetBtn.disabled = true;

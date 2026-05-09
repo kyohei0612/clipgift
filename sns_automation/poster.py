@@ -25,6 +25,9 @@ from pathlib import Path
 
 from .env_loader import load_env
 from .platforms import bluesky_poster, threads_poster, x_poster
+from .utils.auto_trim import trim
+from .utils.char_counter import is_within_safe_limit
+from .utils.cross_review import review
 from .utils.logger import setup_logging
 from .utils.scheduler import load_schedule, resolve
 from .utils.template_engine import VAR_PATTERN, HistoryStore, load_templates, render, select
@@ -122,6 +125,46 @@ def main() -> int:
                 failures.append(platform)
                 continue
 
+            # ────────────────────────────────────────
+            # 字余り自動修正（v2 ルール、2026-05-09 追加）
+            # ────────────────────────────────────────
+            within, current_count, safe_limit = is_within_safe_limit(text, platform)
+            if not within:
+                logger.warning(
+                    "[%s] 字余り検出: %d / %d 字（安全上限）→ 自動修正試行",
+                    platform, current_count, safe_limit,
+                )
+                trimmed_text, trim_actions = trim(text, platform)
+                if trimmed_text is None:
+                    logger.error(
+                        "[%s] 字余り自動修正不能 → 投稿スキップ。アクション: %s",
+                        platform, trim_actions,
+                    )
+                    failures.append(platform)
+                    continue
+                logger.info(
+                    "[%s] 字余り自動修正成功（%d → %d 字）。アクション: %s",
+                    platform,
+                    current_count,
+                    is_within_safe_limit(trimmed_text, platform)[1],
+                    trim_actions,
+                )
+                text = trimmed_text
+
+            # ────────────────────────────────────────
+            # クロスレビュー（品質ちゃん + 整合ちゃん、v2 ルール）
+            # ────────────────────────────────────────
+            review_result = review(text, platform)
+            if not review_result.passed:
+                logger.error(
+                    "[%s] クロスレビュー NG → 投稿スキップ\n品質: %s\n整合: %s",
+                    platform,
+                    review_result.issues_quality,
+                    review_result.issues_strategy,
+                )
+                failures.append(platform)
+                continue
+
             logger.info("[%s] テンプレ %s 選択", platform, template.id)
             logger.info("[%s] 投稿本文:\n%s", platform, text)
 
@@ -143,9 +186,18 @@ def main() -> int:
             failures.append(platform)
 
     if failures:
-        logger.error("失敗: %s", ", ".join(failures))
+        logger.error(
+            "★★★ 投稿失敗 ★★★ 対象媒体: %s（%d/%d）",
+            ", ".join(failures),
+            len(failures),
+            len(slot.platforms),
+        )
+        logger.error("→ ログを遡って該当媒体の詳細エラーを確認してください")
+        logger.error(
+            "→ 字余り自動修正不能 / 致命 NG ワード検出 / API エラー のいずれか"
+        )
         return 1
-    logger.info("全 %d 媒体 完了", len(slot.platforms))
+    logger.info("✅ 全 %d 媒体 投稿完了", len(slot.platforms))
     return 0
 
 
