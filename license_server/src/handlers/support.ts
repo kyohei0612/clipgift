@@ -133,15 +133,56 @@ export async function handleSupportReport(
   const subject = buildReportSubject(body, reportType);
   const text = buildReportBody(body, reportId, receivedAt, attachments.length, reportType);
 
-  // Resend で送信（添付付き）
   try {
-    await sendViaResend(env, {
-      from: env.SUPPORT_FROM_ADDRESS,
-      to: env.SUPPORT_FORWARD_TO,
-      subject,
-      text,
-      attachments,
-    });
+    if (reportType === "request") {
+      // ご要望は 2 通同時送信:
+      //   ① nekodori (SUPPORT_FORWARD_TO) → 要望通知（watcher が検知して .company/support/requests/ に保管）
+      //   ② clipgift.dev (SUPPORT_FORWARD_TO_REQUEST) → 対応依頼（kyohei が手動返信）
+      const ver = body.app_version || "unknown";
+      const head = (body.user_comment || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 30);
+      const notifySubject = `【ClipGift 要望通知】v${ver}${head ? " - " + head : ""}`;
+      const notifyText =
+        "📬 ご要望が届きました。\n" +
+        "返信は clipgift.dev@gmail.com 側から行ってください。\n" +
+        "（このメールは秘書 watcher が読んで `.company/support/requests/` に保管します）\n" +
+        "\n────────────────────────\n" +
+        text;
+      const handleText =
+        "📬 こちらのアカウントよりご要望が届いています。\n" +
+        "ユーザー宛の返信はこちらから直接行ってください。\n" +
+        "\n────────────────────────\n" +
+        text;
+      const requestForwardTo =
+        env.SUPPORT_FORWARD_TO_REQUEST || env.SUPPORT_FORWARD_TO;
+
+      // 通知メール（nekodori、添付なし - 通知用のため）
+      await sendViaResend(env, {
+        from: env.SUPPORT_FROM_ADDRESS,
+        to: env.SUPPORT_FORWARD_TO,
+        subject: notifySubject,
+        text: notifyText,
+      });
+      // 対応依頼メール（clipgift.dev、添付あり）
+      await sendViaResend(env, {
+        from: env.SUPPORT_FROM_ADDRESS,
+        to: requestForwardTo,
+        subject,
+        text: handleText,
+        attachments,
+      });
+    } else {
+      // エラー報告: 既存通り 1 通（添付付き）
+      await sendViaResend(env, {
+        from: env.SUPPORT_FROM_ADDRESS,
+        to: env.SUPPORT_FORWARD_TO,
+        subject,
+        text,
+        attachments,
+      });
+    }
   } catch (e) {
     console.error("Resend 送信失敗:", e);
     return errorResponse(
@@ -167,6 +208,41 @@ export async function handleSupportReport(
     );
   } catch (e) {
     console.warn("KV 保存失敗（非致命）:", e);
+  }
+
+  // v4 アーキ: ローカル watcher 用の pending トリガーを書き込む
+  // （Email Worker を通らないアプリ HTTP 経路でも state.json を作れるように）
+  // エラー報告 → incoming_error / 要望 → incoming_request
+  try {
+    const triggerType =
+      reportType === "request" ? "incoming_request" : "incoming_error";
+    const triggerRecord = {
+      id: reportId,
+      trigger_type: triggerType,
+      subject,
+      from: env.SUPPORT_FROM_ADDRESS || "support@clipgift.org",
+      body: text.slice(0, 10000),
+      in_reply_to: "",
+      // app 経路は Resend 送信前なので Message-ID 不明 → report_id を識別子として使う
+      message_id: `app-report-${reportId}`,
+      received_at: receivedAt,
+      report_id: reportId,
+      user_email: body.user_email || "",
+    };
+    const ttl = 60 * 60 * 24 * 7; // 7 日
+    await env.LICENSES.put(
+      `support:incoming:${reportId}`,
+      JSON.stringify(triggerRecord),
+      { expirationTtl: ttl }
+    );
+    await env.LICENSES.put(`support:pending:${reportId}`, "1", {
+      expirationTtl: ttl,
+    });
+    // v5.1: KV 節約のため queue_marker も更新（watcher が cheap GET で検知）。
+    // marker キーは TTL なしで永続化（incoming_mail.ts と同じ理由）。
+    await env.LICENSES.put("support:queue_marker", receivedAt);
+  } catch (e) {
+    console.warn("v4 trigger 保存失敗（非致命）:", e);
   }
 
   const response: SupportReportResponse = {

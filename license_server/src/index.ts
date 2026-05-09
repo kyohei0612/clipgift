@@ -23,6 +23,11 @@ import {
   handleSupportNotify,
   handleSupportReply,
 } from "./handlers/support";
+import {
+  handleSupportPending,
+  handleSupportProcessed,
+} from "./handlers/support_pending";
+import { handleIncomingMail } from "./handlers/incoming_mail";
 import { errorResponse, jsonResponse } from "./utils";
 
 export default {
@@ -84,6 +89,17 @@ export default {
         return await handleSupportReply(request, env);
       }
 
+      if (url.pathname === "/support/pending" && request.method === "GET") {
+        return await handleSupportPending(request, env);
+      }
+
+      const processedMatch = url.pathname.match(
+        /^\/support\/processed\/([0-9a-f-]{8,})$/i
+      );
+      if (processedMatch && request.method === "POST") {
+        return await handleSupportProcessed(request, env, processedMatch[1]);
+      }
+
       return errorResponse(
         "invalid_request",
         `${request.method} ${url.pathname} は未定義のエンドポイントです`,
@@ -96,6 +112,31 @@ export default {
         "サーバー内部エラーが発生しました",
         500
       );
+    }
+  },
+
+  /**
+   * Cloudflare Email Worker ハンドラ。
+   * Email Routing で「Send to Worker」設定にすると、support@clipgift.org に届いたメールごとに呼ばれる。
+   * 詳細: src/handlers/incoming_mail.ts
+   */
+  async email(
+    message: ForwardableEmailMessage,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<void> {
+    try {
+      await handleIncomingMail(message, env, ctx);
+    } catch (err) {
+      console.error("Email handler error:", err);
+      // 致命的失敗時のみ Gmail にフォールバック転送（ロスを減らす）
+      if (env.SUPPORT_FORWARD_TO) {
+        try {
+          await message.forward(env.SUPPORT_FORWARD_TO);
+        } catch (fwdErr) {
+          console.error("Fallback forward failed:", fwdErr);
+        }
+      }
     }
   },
 } satisfies ExportedHandler<Env>;

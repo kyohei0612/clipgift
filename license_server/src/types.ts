@@ -22,7 +22,10 @@ export interface Env {
   // 未設定の場合は /support/* 系は 503 を返す
   RESEND_API_KEY?: string;
   SUPPORT_FROM_ADDRESS?: string;  // 例: "ClipGift サポート <onboarding@resend.dev>"
-  SUPPORT_FORWARD_TO?: string;     // 例: "nekodori0612@gmail.com"
+  SUPPORT_FORWARD_TO?: string;     // 例: "nekodori0612@gmail.com" (エラー報告 = Claude 自動処理ルート)
+  // 要望（report_type=request）の転送先。未指定の場合は SUPPORT_FORWARD_TO にフォールバック。
+  // 例: "clipgift.dev@gmail.com"（kyohei が手動で読んで返信する想定）
+  SUPPORT_FORWARD_TO_REQUEST?: string;
   // Reply-To: ユーザーが「返信」を押したときに届く先（kyohei さん受信箱）
   // 未指定の場合は SUPPORT_FORWARD_TO を流用
   SUPPORT_REPLY_TO?: string;
