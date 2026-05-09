@@ -212,6 +212,26 @@ def _try_register_inbox_message(
         report_type = "error"
     elif subject_stripped.startswith(SupportConfig.SUBJECT_FILTER_REQUEST):
         report_type = "request"
+    elif subject_stripped.startswith(SupportConfig.SUBJECT_FILTER_REQUEST_NOTIFY):
+        # 要望通知 → state 機械化せず、.company/support/requests/ に保管して終了
+        from_addr_pre = _decode_header(msg.get("From", ""))
+        if (
+            "onboarding@resend.dev" not in from_addr_pre
+            and "support@clipgift" not in from_addr_pre
+        ):
+            return None
+        message_id_pre = (msg.get("Message-ID") or "").strip("<>").strip()
+        if _inbox_already_processed(message_id_pre):
+            return None
+        if re.match(r"^\s*(Re|RE|Fwd|Fw|FW):\s*", subject):
+            return None
+        body_pre = _extract_text_body(msg)
+        try:
+            _save_request_record(subject_stripped, body_pre, message_id_pre, msg)
+        except Exception as e:
+            logger.warning("要望保管失敗: %s", e)
+        mark_inbox_processed(message_id_pre)
+        return None
     else:
         return None  # 関係ないメール
 
@@ -711,3 +731,58 @@ def _extract_form_user_email(body: str) -> str:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _save_request_record(
+    subject: str,
+    body: str,
+    message_id: str,
+    msg: email.message.Message,
+) -> None:
+    """要望通知メールを `.company/support/requests/YYYY-MM-DD-<hash>.md` に保管。
+
+    秘書が /company で参照できるよう markdown frontmatter 付きで保存する。
+    """
+    SupportConfig.REQUESTS_DIR.mkdir(parents=True, exist_ok=True)
+
+    today = datetime.now(timezone.utc).date().isoformat()
+    req_hash = _hash_for(subject, message_id, body)
+    file_path = SupportConfig.REQUESTS_DIR / f"{today}-{req_hash}.md"
+    if file_path.exists():
+        return  # 多重防止
+
+    user_email = _extract_form_user_email(body)
+    received_at = _decode_header(msg.get("Date", "")) or _now_iso()
+
+    content = (
+        "---\n"
+        f'date: "{today}"\n'
+        f'request_hash: "{req_hash}"\n'
+        f'user_email: "{user_email}"\n'
+        f'subject: "{subject}"\n'
+        f'received_at: "{received_at}"\n'
+        f'message_id: "{message_id}"\n'
+        'status: "pending"  # pending / replied / closed\n'
+        "---\n"
+        "\n"
+        f"# {subject}\n"
+        "\n"
+        "## 概要\n"
+        "\n"
+        "ユーザー連絡先（あれば）: "
+        f"`{user_email or '（なし）'}`  \n"
+        f"受信時刻: `{received_at}`\n"
+        "\n"
+        "## メール本文\n"
+        "\n"
+        "```\n"
+        + body
+        + "\n```\n"
+        "\n"
+        "## 対応メモ\n"
+        "\n"
+        "（kyohei さんが clipgift.dev@gmail.com 側から返信したらここに記録）\n"
+    )
+
+    file_path.write_text(content, encoding="utf-8")
+    logger.info("要望保管完了: %s", file_path.name)

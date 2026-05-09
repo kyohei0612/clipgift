@@ -50,6 +50,7 @@ class IncidentState:
     repair_summary: str = ""           # Claude 解析後の修正サマリ
     user_reply_draft: str = ""         # ユーザー返信案
     affected_files: list[str] = field(default_factory=list)
+    claude_session_id: str = ""        # Claude セッション継続用（resume に使う）
     created_at: str = ""
     updated_at: str = ""
 

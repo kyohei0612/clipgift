@@ -681,8 +681,13 @@
               type="file"
               accept="image/*"
               multiple
-              style="width:100%;font-size:13px;color:var(--text-primary);"
+              style="display:none;"
             />
+            <label for="errorReportFiles" id="errorReportFilesDropzone" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px 16px;border:2px dashed var(--text-secondary);border-radius:var(--radius-md);background:var(--surface);color:var(--text-secondary);font-size:13px;cursor:pointer;transition:all 0.15s ease;">
+              <span style="font-size:22px;line-height:1;">📷</span>
+              <span id="errorReportFilesDropzoneLabel" style="font-weight:600;color:var(--text-primary);">クリックして画像を選択</span>
+              <span style="font-size:11px;">または画像をここにドラッグ＆ドロップ</span>
+            </label>
             <p style="font-size:11px;color:var(--text-secondary);margin:6px 0 0 0;">
               💡 撮り方：<strong>Win + Shift + S</strong> で範囲選択スクショ → そのまま貼り付けるかファイル保存して選択
             </p>
@@ -703,15 +708,19 @@
 
       <style>
         #errorReportResetBtn:hover:not(:disabled) {
-          background: rgba(255, 165, 0, 0.08);
+          background: rgba(255, 165, 0, 0.18);
           color: var(--text-primary);
           border-style: solid;
-          border-color: var(--text-secondary);
+          border-color: rgba(255, 165, 0, 0.7);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(255, 165, 0, 0.25);
         }
         #errorReportCancelBtn:hover:not(:disabled) {
-          background: var(--surface);
+          background: rgba(39, 154, 217, 0.1);
           color: var(--text-primary);
-          border-color: var(--text-secondary);
+          border-color: var(--brand-500);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(39, 154, 217, 0.25);
         }
         #errorReportSendBtn:hover:not(:disabled) {
           background: var(--brand-600, #1d8acb);
@@ -725,6 +734,58 @@
           cursor: not-allowed !important;
           transform: none !important;
           box-shadow: none !important;
+        }
+        /* index2.html と同じ明示的初期スタイル（両ページの見た目を完全に同期する） */
+        #errorReportResetBtn,
+        #errorReportCancelBtn {
+          box-shadow: none;
+          background: transparent;
+        }
+        #errorReportSendBtn {
+          box-shadow: none;
+        }
+        /* モーダル内フォーム要素のホバー / フォーカス反応 */
+        #errorReportType,
+        #errorReportEmail,
+        #errorReportComment {
+          transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+        }
+        #errorReportType:hover,
+        #errorReportEmail:hover,
+        #errorReportComment:hover {
+          border-color: var(--brand-500);
+          background: var(--surface-elevated);
+        }
+        #errorReportType:focus,
+        #errorReportEmail:focus,
+        #errorReportComment:focus {
+          outline: none;
+          border-color: var(--brand-500);
+          box-shadow: 0 0 0 3px rgba(39, 154, 217, 0.18);
+        }
+        /* スクショ ドロップゾーン */
+        #errorReportFilesDropzone:hover {
+          border-color: var(--brand-500);
+          background: rgba(39, 154, 217, 0.14);
+          color: var(--text-primary);
+          transform: translateY(-2px);
+          box-shadow: 0 4px 14px rgba(39, 154, 217, 0.25);
+        }
+        #errorReportFilesDropzone.is-dragover {
+          border-style: solid;
+          border-color: var(--brand-500);
+          background: rgba(39, 154, 217, 0.22);
+          color: var(--text-primary);
+          transform: scale(1.02);
+          box-shadow: 0 0 0 4px rgba(39, 154, 217, 0.18), 0 6px 20px rgba(39, 154, 217, 0.3);
+        }
+        #errorReportFilesDropzone.has-files {
+          border-style: solid;
+          border-color: var(--brand-500);
+          background: rgba(39, 154, 217, 0.08);
+        }
+        #errorReportFilesDropzone.has-files:hover {
+          background: rgba(39, 154, 217, 0.14);
         }
       </style>
 
@@ -1112,6 +1173,8 @@
       const filesInput = document.getElementById("errorReportFiles");
       const filesRequiredLabel = document.getElementById("errorReportFilesRequired");
       const previewBox = document.getElementById("errorReportPreview");
+      const dropzone = document.getElementById("errorReportFilesDropzone");
+      const dropzoneLabel = document.getElementById("errorReportFilesDropzoneLabel");
       const feedback = document.getElementById("errorReportFeedback");
       if (!openBtn || !modal) return;
 
@@ -1150,6 +1213,18 @@
         sendBtn.style.opacity = enabled ? "1" : "0.5";
         sendBtn.style.cursor = enabled ? "pointer" : "not-allowed";
       }
+      function updateDropzoneLabel() {
+        if (!dropzoneLabel || !dropzone) return;
+        const n = attachmentsCache.length;
+        if (n === 0) {
+          dropzoneLabel.textContent = "クリックして画像を選択";
+          dropzone.classList.remove("has-files");
+        } else {
+          dropzoneLabel.textContent = "✓ " + n + " 枚 選択中（クリックで差し替え）";
+          dropzone.classList.add("has-files");
+        }
+      }
+
       function resetForm({ keepCapturedError = true } = {}) {
         if (typeSelect) typeSelect.value = "error";
         emailInput.value = "";
@@ -1157,6 +1232,7 @@
         filesInput.value = "";
         previewBox.innerHTML = "";
         attachmentsCache = [];
+        updateDropzoneLabel();
         hideFeedback();
         sendBtn.textContent = "送信する";
         cancelBtn.disabled = false;
@@ -1190,12 +1266,14 @@
         attachmentsCache = [];
 
         if (files.length === 0) {
+          updateDropzoneLabel();
           setSendEnabled(false);
           return;
         }
         if (files.length > MAX_FILES) {
           showFeedback("画像は最大 " + MAX_FILES + " 枚までです。", true);
           filesInput.value = "";
+          updateDropzoneLabel();
           setSendEnabled(false);
           return;
         }
@@ -1203,12 +1281,14 @@
           if (!f.type.startsWith("image/")) {
             showFeedback("画像ファイルのみ添付できます: " + f.name, true);
             filesInput.value = "";
+            updateDropzoneLabel();
             setSendEnabled(false);
             return;
           }
           if (f.size > MAX_SIZE_BYTES) {
             showFeedback(f.name + " が 5MB を超えています。", true);
             filesInput.value = "";
+            updateDropzoneLabel();
             setSendEnabled(false);
             return;
           }
@@ -1229,12 +1309,36 @@
           img.style.cssText = "width:80px;height:80px;object-fit:cover;border-radius:6px;border:1px solid var(--border);";
           previewBox.appendChild(img);
         }
+        updateDropzoneLabel();
         setSendEnabled(true);
       }
 
       filesInput.addEventListener("change", (e) => {
         handleFiles(e.target.files);
       });
+
+      // ドラッグ＆ドロップ対応
+      if (dropzone) {
+        dropzone.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          dropzone.classList.add("is-dragover");
+        });
+        dropzone.addEventListener("dragleave", () => {
+          dropzone.classList.remove("is-dragover");
+        });
+        dropzone.addEventListener("drop", (e) => {
+          e.preventDefault();
+          dropzone.classList.remove("is-dragover");
+          if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+            try {
+              const dt = new DataTransfer();
+              Array.from(e.dataTransfer.files).slice(0, MAX_FILES).forEach((f) => dt.items.add(f));
+              filesInput.files = dt.files;
+            } catch (_) {}
+            handleFiles(e.dataTransfer.files);
+          }
+        });
+      }
 
       openBtn.addEventListener("click", () => {
         resetForm();

@@ -58,10 +58,22 @@ class SupportConfig:
     SUBJECT_FILTER_REQUEST = os.environ.get(
         "SUPPORT_SUBJECT_FILTER_REQUEST", "【ClipGift ご要望】"
     )
+    # nekodori 受信箱に届く要望通知（実際の対応依頼は clipgift.dev 側）
+    SUBJECT_FILTER_REQUEST_NOTIFY = os.environ.get(
+        "SUPPORT_SUBJECT_FILTER_REQUEST_NOTIFY", "【ClipGift 要望通知】"
+    )
 
     # 受信メール保存ディレクトリ
     INCOMING_DIR = (
         Path(__file__).resolve().parent / "incoming"
+    )
+
+    # 要望保管ディレクトリ（秘書が /company で参照する要望リスト）
+    REQUESTS_DIR = (
+        Path(__file__).resolve().parent.parent
+        / ".company"
+        / "support"
+        / "requests"
     )
 
     @classmethod

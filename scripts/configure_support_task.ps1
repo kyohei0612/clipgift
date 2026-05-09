@@ -1,4 +1,4 @@
-# Windows タスクスケジューラに「ClipGift Support Mail Watcher」を登録する PowerShell スクリプト
+﻿# Windows タスクスケジューラに「ClipGift Support Mail Watcher」を登録する PowerShell スクリプト
 #
 # 使い方:
 #   管理者権限の PowerShell で実行

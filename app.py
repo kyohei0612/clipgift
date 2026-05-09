@@ -49,6 +49,8 @@ app = Flask(
 # --- アップロード制限・拡張子ホワイトリスト（config.py で定義） ---
 MAX_UPLOAD_BYTES = config.MAX_UPLOAD_BYTES
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+# ホットリロード: テンプレ編集 → アプリ再起動なしで次リクエストに反映（debug=False でもオン）
+app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 ALLOWED_VIDEO_EXTS = config.ALLOWED_VIDEO_EXTS
 ALLOWED_CSV_EXTS = config.ALLOWED_CSV_EXTS
