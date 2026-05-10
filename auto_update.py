@@ -24,6 +24,8 @@ GITHUB_REPO = "clipgift"
 GITHUB_BRANCH = "main"
 
 # 更新から除外するファイル・フォルダ
+# 注意: support_center/{__init__,config,pii_masker,error_reporter}.py はエンドユーザーの
+# app.py から参照されるため除外しない。`scripts/refresh_icon_cache.bat` もエンドユーザー用。
 EXCLUDE_FILES = {
     "bin/ffmpeg.exe",
     "bin/ffprobe.exe",
@@ -38,10 +40,18 @@ EXCLUDE_FILES = {
     "support_center/notify_kyohei.py",
     "support_center/reply_user.py",
     "support_center/state_machine.py",
+    "support_center/.env.example",
     "scripts/watch_support_mail.py",
     "scripts/watch_support_idle.py",
+    "scripts/watch_support_http.py",
     "scripts/reply_user.py",
     "scripts/configure_support_task.ps1",
+    "scripts/configure_support_http_watcher.ps1",
+    # 管理スクリプト: kyohei ローカル運用専用（エンドユーザーには不要）
+    "scripts/issue_license.py",
+    "scripts/revoke_license.py",
+    "scripts/sync_sns_secrets_to_github.py",
+    "scripts/package_for_booth.ps1",
 }
 
 # 製品配布物以外（マーケティングツール・CI・組織管理・環境変数）
