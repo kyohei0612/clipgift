@@ -563,13 +563,21 @@ body.light-mode #waveform-container { background: var(--slate-100); }
   height: 100%;
   background: var(--accent);
   border-radius: var(--radius-xs);
-  cursor: ew-resize;
+  /* Phase C #12: grab / grabbing カーソル整合（mainstream UX 慣例） */
+  cursor: grab;
   z-index: 2;
   transition: background var(--transition), box-shadow var(--transition);
   box-shadow: 0 0 12px rgba(39, 154, 217, 0.4);
+  touch-action: none;
 }
 #startHandle:hover, #endHandle:hover { background: var(--brand-400); box-shadow: 0 0 16px rgba(39, 154, 217, 0.6); }
+/* Phase C #12: ドラッグ中は grabbing */
+#startHandle:active, #endHandle:active,
+.rangeSliderHandle.dragging { cursor: grabbing; }
 .dragging { background: var(--brand-400) !important; }
+/* ドラッグ中はページ全体のカーソルも grabbing に統一（離すまでぶれない） */
+body.is-dragging-handle,
+body.is-dragging-handle * { cursor: grabbing !important; }
 
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(-4px); }
@@ -935,6 +943,111 @@ button.btn-danger:disabled {
 @keyframes emptyPulse {
   0%, 100% { opacity: 0.4; transform: scale(1); }
   50%      { opacity: 0.8; transform: scale(1.06); }
+}
+
+/* ========================================================================
+ * UIUX 改善 Phase C (2026-05-10) — プロデザイナー君指示書対応
+ * #13 スケルトンローディング / #12 grab/grabbing カーソル / #14 tabular-nums
+ * ======================================================================== */
+
+/* === #14 タイポグラフィチューニング: 数字を等幅化（桁ガタつき防止） === */
+/* クリップ番号 / タイトル横の counter（既に font-mono 指定だが明示で堅牢化） */
+.clip-counter,
+/* 開始/終了/長さ表示 */
+.timeBox,
+.timeDisplays,
+#startTimeDisplay,
+#endTimeDisplay,
+#clipDurationDisplay,
+/* 解析結果カード内の "MM:SS ～ MM:SS" 表示 */
+.clipTime,
+/* キーヒント行内の <kbd> も等幅 */
+.modal-kbd-hints kbd {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+/* タイトル下の時刻はやや弱めに（数字部分を主役に揃える） */
+.clipTime {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+/* クリップ長表示は数字主体なので強めの可読性 */
+#clipDurationDisplay {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.005em;
+}
+
+/* === #13 スケルトンローディング ============================================
+ * 解析中の empty-state 直下に、クリップカード相当のスケルトンを 4 枚表示。
+ * empty-state(analyzing) は icon pulse のみで控えめなので、骨組みを補強する。
+ * is-loading 状態以外では非表示。
+ * ============================================================== */
+#clipsSkeleton {
+  display: none;
+  margin: 12px auto 0;
+  max-width: 720px;
+  padding: 0 4px;
+}
+.empty-state.is-loading + #clipsSkeleton,
+.empty-state.is-loading ~ #clipsSkeleton {
+  /* analyzing 状態のときだけ表示（兄弟セレクタで安全に） */
+  display: block;
+}
+.skeleton-card {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin: 8px 0;
+  height: 64px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+.skeleton-card::before {
+  /* "タイトル行" を模した薄いバー */
+  content: "";
+  display: block;
+  width: 60%;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--border);
+  opacity: 0.7;
+}
+.skeleton-card::after {
+  /* 左→右へ流れる shimmer。translate ベースで GPU 負荷低 */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent-soft) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+.skeleton-card .skeleton-line {
+  display: block;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--border);
+  opacity: 0.5;
+  width: 35%;
+}
+@keyframes skeletonShimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+/* prefers-reduced-motion: アニメーション停止（アクセシビリティ） */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-card::after { animation: none; opacity: 0.4; }
+  .empty-state.is-loading .empty-state-icon { animation: none; opacity: 0.6; }
 }
 </style>
   <script src="/static/theme.js" defer></script>
@@ -1378,6 +1491,13 @@ button.btn-danger:disabled {
             動画ファイルとチャットファイルを選択して<br />
             「🔍 解析する」を押してください
           </p>
+        </div>
+        <!-- Phase C #13: 解析中スケルトン (empty-state.is-loading 時のみ CSS で表示) -->
+        <div id="clipsSkeleton" aria-hidden="true">
+          <div class="skeleton-card"><span class="skeleton-line"></span></div>
+          <div class="skeleton-card"><span class="skeleton-line"></span></div>
+          <div class="skeleton-card"><span class="skeleton-line"></span></div>
+          <div class="skeleton-card"><span class="skeleton-line"></span></div>
         </div>
         <ul id="clipList" class="center"></ul>
       </div>
@@ -3640,6 +3760,8 @@ function onDragStart(e) {
   dragTarget = target;
   dragTarget.classList.add("dragging");
   isDragging = true;
+  // Phase C #12: ドラッグ中はページ全体のカーソルを grabbing に統一
+  try { document.body.classList.add("is-dragging-handle"); } catch (_) {}
 
   if (videoPlayer) {
     videoPlayer.pause();
@@ -3741,6 +3863,8 @@ function onDragEnd(e) {
   dragTarget.classList.remove("dragging");
   dragTarget = null;
   isDragging = false;
+  // Phase C #12: ドラッグ終了でページ全体のカーソル統一を解除
+  try { document.body.classList.remove("is-dragging-handle"); } catch (_) {}
 
   // === Phase A #2: ドラッグ終了で clip に範囲を反映 + 保存サイン ===
   try {
