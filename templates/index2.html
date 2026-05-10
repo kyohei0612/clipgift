@@ -3833,7 +3833,9 @@ function onDragMove(e) {
   percent = Math.min(Math.max(percent, 0), 1);
 
   let time = sliderMin + percent * (sliderMax - sliderMin);
-  time = Math.round(time * 10) / 10;
+  // ピクセル単位で滑らかに動くよう、丸めを撤廃して連続値で扱う
+  // （旧: 0.1 秒刻みに丸めていたが、体感的に「1 秒刻み」のように飛ぶ感じが残ったため撤廃）
+  // 表示・保存時の丸めはフォーマッタ側で個別に行う。
 
   if (dragTarget.id === "startHandle") {
     clipStartSec = Math.min(time, clipEndSec - 0.5);
