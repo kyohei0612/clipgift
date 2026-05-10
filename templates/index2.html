@@ -2226,7 +2226,10 @@ if (cancelBtn) {
 
 function parseTimeToSeconds(timeStr) {
   if (!timeStr || typeof timeStr !== "string") return 0;
-  const parts = timeStr.split(":").map((p) => parseInt(p, 10));
+  // ★ formatTime が "0:12.7" のような小数 1 桁を出すため parseFloat 必須。
+  //    parseInt だと 12 に切り捨てられ、キュー追加で小数秒が消失する（連続値化の意義喪失）。
+  const parts = timeStr.split(":").map((p) => parseFloat(p));
+  if (parts.some((n) => Number.isNaN(n))) return 0;
   if (parts.length === 2) {
     const [min, sec] = parts;
     return min * 60 + sec;
@@ -3038,8 +3041,8 @@ function formatTime(sec) {
   const totalSec = Math.max(0, Number(sec) || 0);
   const hours = Math.floor(totalSec / 3600);
   const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
-  // 秒は小数 1 桁で 0 埋め（例: 03.4 / 12.7）
+  // ★ toFixed の四捨五入だと 59.95 → "60.0" → "0:60.0" の珍表示になるため、切り捨てに固定
+  const seconds = Math.floor((totalSec % 60) * 10) / 10;
   const secStr = seconds.toFixed(1).padStart(4, "0");
 
   if (hours > 0) {
@@ -3581,8 +3584,8 @@ function formatVideoFileName(fileName) {
 function updateClipDurationDisplay() {
   const duration = clipEndSec - clipStartSec;
   const minutes = Math.floor(duration / 60);
-  // 0.1 秒刻みで表示（整数切り捨てだと「1 秒刻みでカクつく」体感になるため）
-  const seconds = (duration % 60).toFixed(1);
+  // ★ toFixed の四捨五入だと 59.95 → "60.0秒" / "1分60.0秒" の珍表示になるため、切り捨てに固定
+  const seconds = (Math.floor((duration % 60) * 10) / 10).toFixed(1);
 
   const displayText =
     minutes > 0
@@ -3956,6 +3959,12 @@ function scrollWaveformIfNeeded(currentTime) {
     const distFromLeft = currentTime - viewStart;
     const distFromRight = viewEnd - currentTime;
     const inEdgeZone = distFromLeft < edgeZone || distFromRight < edgeZone;
+
+    // 中央ゾーンを横断中は last をリセット（次に端ゾーンに入った時、中央通過分の delta が
+    // 累積して一段大きく動いてしまう問題を回避する）
+    if (!inEdgeZone) {
+      _waveformLastTime = null;
+    }
 
     let newStart = viewStart;
 
