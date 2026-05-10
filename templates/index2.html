@@ -3762,6 +3762,8 @@ function onDragStart(e) {
   isDragging = true;
   // Phase C #12: ドラッグ中はページ全体のカーソルを grabbing に統一
   try { document.body.classList.add("is-dragging-handle"); } catch (_) {}
+  // 波形スクロールの delta 計算用ステートをリセット（前回ドラッグの値を引きずらない）
+  try { _resetWaveformScrollState(); } catch (_) {}
 
   if (videoPlayer) {
     videoPlayer.pause();
@@ -3865,6 +3867,8 @@ function onDragEnd(e) {
   isDragging = false;
   // Phase C #12: ドラッグ終了でページ全体のカーソル統一を解除
   try { document.body.classList.remove("is-dragging-handle"); } catch (_) {}
+  // 次回ドラッグ開始時の delta 計算がクリーンに始まるようリセット
+  try { _resetWaveformScrollState(); } catch (_) {}
 
   // === Phase A #2: ドラッグ終了で clip に範囲を反映 + 保存サイン ===
   try {
@@ -3918,6 +3922,16 @@ function updateWaveformSegment() {
   }
 }
 
+// ★ 波形スクロール: 速度比例方式（ギア比 0.5）
+// バーを動かした量の 50% を波形がスクロールする「ダイヤルを回す」感覚。
+// 中央 30% ゾーンでは波形静止、端 35% ゾーンに入ると追従発火。
+// バーがビュー外に飛び出さないようクランプも入れる。
+let _waveformLastTime = null;
+
+function _resetWaveformScrollState() {
+  _waveformLastTime = null;
+}
+
 function scrollWaveformIfNeeded(currentTime) {
   if (!peaksInstance) return;
 
@@ -3926,17 +3940,38 @@ function scrollWaveformIfNeeded(currentTime) {
     if (!zoomview) return;
 
     const viewStart = zoomview.getStartTime();
-    const viewEnd = viewStart + WAVEFORM_VIEW_DURATION;
+    const viewWidth = WAVEFORM_VIEW_DURATION;
+    const viewEnd = viewStart + viewWidth;
 
-    if (currentTime < viewStart) {
-      const newStart = Math.max(currentTime - WAVEFORM_VIEW_DURATION * 0.1, 0);
-      zoomview.setStartTime(newStart);
-      console.log("⬅️ 波形を前へ:", newStart);
-    } else if (currentTime > viewEnd) {
-      const newStart = currentTime - WAVEFORM_VIEW_DURATION * 0.9;
-      zoomview.setStartTime(newStart);
-      console.log("➡️ 波形を次へ:", newStart);
+    const edgeZone = viewWidth * 0.35;             // 端 35% で発火
+    const distFromLeft = currentTime - viewStart;
+    const distFromRight = viewEnd - currentTime;
+    const inEdgeZone = distFromLeft < edgeZone || distFromRight < edgeZone;
+
+    let newStart = viewStart;
+
+    // 端ゾーン内ならバーの動きの 50% を波形に反映（ギア比 0.5）
+    if (inEdgeZone && _waveformLastTime !== null) {
+      const delta = currentTime - _waveformLastTime;
+      newStart = viewStart + delta * 0.5;
     }
+
+    // クランプ: バーがビュー外（端 5%）に飛ばないよう強制スクロール
+    const safety = viewWidth * 0.05;
+    if (currentTime - newStart < safety) {
+      newStart = currentTime - viewWidth * 0.1;     // 左端から 10% に戻す
+    } else if (currentTime - newStart > viewWidth - safety) {
+      newStart = currentTime - viewWidth * 0.9;     // 右端から 90% に戻す
+    }
+
+    newStart = Math.max(newStart, 0);
+
+    // 微小変化はスキップ（描画コスト削減）
+    if (Math.abs(newStart - viewStart) > 0.05) {
+      zoomview.setStartTime(newStart);
+    }
+
+    _waveformLastTime = currentTime;
   } catch (err) {
     console.warn("⚠️ 波形スクロールエラー:", err);
   }
