@@ -137,21 +137,31 @@ jobs:
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          # workflow_dispatch inputs を env 経由で受け取り、bash 内で "$VAR" として
+          # ダブルクオート展開する（${{ inputs.* }} の直接シェル展開は shell injection 経路）。
+          SCHEDULE_NAME: ${{ steps.resolve.outputs.name }}
+          DRY_RUN: ${{ steps.resolve.outputs.dry_run }}
+          NOTE_URL: ${{ inputs.note_url }}
+          NOTE_TITLE: ${{ inputs.note_title }}
+          NOTE_SUMMARY: ${{ inputs.note_summary }}
+          BOOTH_URL: ${{ inputs.booth_url }}
         run: |
-          ARGS="--schedule ${{ steps.resolve.outputs.name }}"
-          if [ "${{ steps.resolve.outputs.dry_run }}" = "true" ]; then
-            ARGS="$ARGS --dry-run"
+          # 引数は bash 配列で組み立てる（値にスペース・記号が含まれても安全に
+          # 1 トークンとして poster.py に渡る。argparse 側は --var KEY=VALUE 形式）。
+          ARGS=(--schedule "$SCHEDULE_NAME")
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
           fi
-          if [ -n "${{ inputs.note_url }}" ]; then
-            ARGS="$ARGS --var url=${{ inputs.note_url }}"
+          if [ -n "$NOTE_URL" ]; then
+            ARGS+=(--var "url=$NOTE_URL")
           fi
-          if [ -n "${{ inputs.note_title }}" ]; then
-            ARGS="$ARGS --var title=${{ inputs.note_title }}"
+          if [ -n "$NOTE_TITLE" ]; then
+            ARGS+=(--var "title=$NOTE_TITLE")
           fi
-          if [ -n "${{ inputs.note_summary }}" ]; then
-            ARGS="$ARGS --var summary=${{ inputs.note_summary }}"
+          if [ -n "$NOTE_SUMMARY" ]; then
+            ARGS+=(--var "summary=$NOTE_SUMMARY")
           fi
-          if [ -n "${{ inputs.booth_url }}" ]; then
-            ARGS="$ARGS --var booth_url=${{ inputs.booth_url }}"
+          if [ -n "$BOOTH_URL" ]; then
+            ARGS+=(--var "booth_url=$BOOTH_URL")
           fi
-          python -m sns_automation.poster $ARGS
+          python -m sns_automation.poster "${ARGS[@]}"

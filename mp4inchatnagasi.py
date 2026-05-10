@@ -188,7 +188,6 @@ def read_comments(csv_path, base=0, clip_ranges=None):
         for row in reader:
             ts = time_str_to_seconds(row.get("time", ""))
             txt = row.get("comment", "").strip()
-            print(f"[DEBUG] ts={ts}, txt={txt}")
             if ts is None or not txt:
                 continue
 
@@ -219,6 +218,7 @@ def read_comments(csv_path, base=0, clip_ranges=None):
             if current_start <= ts <= current_end:
                 comments.append({"time": ts, "text": txt})
 
+    print(f"[INFO] Comments loaded: {len(comments)} 件")
     return comments
 
 

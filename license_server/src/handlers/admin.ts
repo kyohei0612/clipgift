@@ -58,12 +58,27 @@ export async function handleAdminIssue(
   if (body.order_id) {
     const existing = await env.LICENSES.get(`order:${body.order_id}`);
     if (existing) {
-      const existingData = JSON.parse(existing) as { key: string };
-      return jsonResponse({
-        status: "ok",
-        key: existingData.key,
-        note: "既存の注文に対応するキーを返しました",
-      });
+      // M-6: JSON.parse 失敗時に 500 で巻き込まないよう try/catch で防御。
+      // 既存データが破損している場合は 400（不正データ）として明示的に返し、
+      // 上書き発行は安全側でブロックする（手動修復に倒す）。
+      try {
+        const existingData = JSON.parse(existing) as { key: string };
+        return jsonResponse({
+          status: "ok",
+          key: existingData.key,
+          note: "既存の注文に対応するキーを返しました",
+        });
+      } catch (e) {
+        console.warn(
+          `order:${body.order_id} の既存データが不正な JSON です:`,
+          e
+        );
+        return errorResponse(
+          "invalid_request",
+          `既存の注文データが破損しています（order_id=${body.order_id}）。手動で確認してください。`,
+          400
+        );
+      }
     }
   }
 

@@ -107,9 +107,15 @@ $Settings = New-ScheduledTaskSettingsSet `
     -ExecutionTimeLimit (New-TimeSpan -Days 7)
 
 # Principal: ログオンユーザー権限で実行
+#   LogonType S4U（Service for User）: ユーザーがログオンしていなくても実行可能。
+#   pythonw.exe は GUI 表示なしの常駐プロセスなのでログオン非依存で問題ない。
+#   これにより Boot Trigger（AtStartup）がログオン前でも発火するようになり、
+#   「自動ログインが入らないコールドスタート保険」というコメント目的を達成する。
+#   Interactive のままだと StartWhenAvailable=True でログオン後に発火するため、
+#   実質 AtLogOn と同じ挙動になっていた。
 $Principal = New-ScheduledTaskPrincipal `
     -UserId $env:USERNAME `
-    -LogonType Interactive `
+    -LogonType S4U `
     -RunLevel Limited
 
 # 登録

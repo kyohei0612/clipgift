@@ -52,22 +52,48 @@ export async function handleSupportPending(
     } satisfies PendingListResponse);
   }
 
-  // KV LIST で未処理トリガー ID を列挙（先頭 100 件）
-  const list = await env.LICENSES.list({ prefix: "support:pending:", limit: 100 });
-
+  // M-5: KV LIST のページネーション対応。
+  // 1 リクエストの安全上限として 5 ページ（最大 500 件）でループを止める。
+  // 100 件を超える pending が溜まるのは異常事態（通常は数件〜十数件想定）なので
+  // この上限を超える分は次回 poll に持ち越す。
   const triggers: IncomingTriggerRecord[] = [];
-  for (const key of list.keys) {
-    const id = key.name.replace("support:pending:", "");
-    const recRaw = await env.LICENSES.get(`support:incoming:${id}`);
-    if (!recRaw) {
-      // pending マーカーは残ってるが本体が消えている（TTL 切れ等）→ pending も消す
-      await env.LICENSES.delete(`support:pending:${id}`);
-      continue;
+  const PAGE_LIMIT = 100;
+  const MAX_PAGES = 5;
+  let cursor: string | undefined = undefined;
+  let pages = 0;
+  while (pages < MAX_PAGES) {
+    const listOpts: KVNamespaceListOptions = {
+      prefix: "support:pending:",
+      limit: PAGE_LIMIT,
+    };
+    if (cursor) {
+      listOpts.cursor = cursor;
     }
-    try {
-      triggers.push(JSON.parse(recRaw) as IncomingTriggerRecord);
-    } catch (e) {
-      console.warn("Pending record parse failed:", id, e);
+    const list: KVNamespaceListResult<unknown> = await env.LICENSES.list(
+      listOpts
+    );
+    for (const key of list.keys) {
+      const id = key.name.replace("support:pending:", "");
+      const recRaw = await env.LICENSES.get(`support:incoming:${id}`);
+      if (!recRaw) {
+        // pending マーカーは残ってるが本体が消えている（TTL 切れ等）→ pending も消す
+        await env.LICENSES.delete(`support:pending:${id}`);
+        continue;
+      }
+      try {
+        triggers.push(JSON.parse(recRaw) as IncomingTriggerRecord);
+      } catch (e) {
+        console.warn("Pending record parse failed:", id, e);
+      }
+    }
+    pages++;
+    if (list.list_complete) {
+      break;
+    }
+    // list_complete=false のときのみ cursor が存在する（KV API の判別共用体）
+    cursor = list.cursor;
+    if (!cursor) {
+      break;
     }
   }
 
@@ -91,7 +117,8 @@ export async function handleSupportProcessed(
   if (!checkAdminAuth(request, env)) {
     return errorResponse("unauthorized", "認証エラー", 401);
   }
-  if (!triggerId || !/^[0-9a-f-]{8,}$/i.test(triggerId)) {
+  // M-3: UUID は 36 文字。念のため上限 40 文字とする。
+  if (!triggerId || !/^[0-9a-f-]{8,40}$/i.test(triggerId)) {
     return errorResponse("invalid_request", "trigger_id が不正です", 400);
   }
   // pending マーカーだけ削除。incoming 本体は履歴として保持（TTL で自動消失）。

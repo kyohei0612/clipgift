@@ -11,6 +11,17 @@
 #  - cron は UTC、JST との時差は +9:00（例: JST 9:00 = UTC 0:00）
 #  - GitHub Actions の cron は最短 5 分間隔、実際の発火は数分遅れることあり
 #  - スパム判定回避で投稿時刻に ±15 分のランダムを付加（poster.py 側で実装）
+#
+# ★★★ cron 値の役割について（重要） ★★★
+#  - 各 schedule の `cron:` 値は **target 投稿時刻（JST）を表すドキュメント** 用途。
+#    workflow_dispatch UI で "どのスロットがいつ発火する想定か" を読みやすくするための情報。
+#  - **実際のジョブ発火タイミングを支配するのは `.github/workflows/sns_post.yml` の
+#    `on.schedule.cron` の方**（target 時刻の 15 分前を指定し、ジョブ内で 0〜30 分の
+#    ランダム sleep を入れて結果的に target ± 15 分で投稿する設計）。
+#  - したがって本ファイルの `cron:` 値を編集してもジョブ発火時刻は変わらない。
+#    時刻変更時は **両方** 同期して更新すること（sns_post.yml が真のソース）。
+#  - workflow の `Resolve schedule name` step は sns_post.yml の cron 文字列で
+#    name を逆引きする実装なので、対応関係を保つこと。
 
 # ─── ローンチ前運用（5/12〜5/21）────────────────────
 # achievement / teaser / launch カテゴリは {{booth_url}} 必須テンプレで構成されており、

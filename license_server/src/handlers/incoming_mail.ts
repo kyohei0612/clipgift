@@ -9,17 +9,19 @@
  *
  * ローカル watcher は GET /support/pending を 5 秒ごとに poll して新トリガーを取得。
  *
- * 設計書: .company/engineering/docs/support-center.md (v4)
+ * 設計書: .company/engineering/docs/support-center.md (v5.1, 2026-05-10 run_dialog 一本化)
  */
 import PostalMime from "postal-mime";
 import type { Env } from "../types";
 
 /**
- * トリガー種別（v5: Claude セッション継続方式）
+ * トリガー種別（v5.1: run_dialog 一本化方式 / 2026-05-10）
  *   incoming_error      : ユーザーからのエラー報告（local watcher が自動 Claude 起動）
  *   incoming_request    : ユーザーからのご要望（保管、Phase 2 で Claude 判定追加予定）
- *   reply_to_secretary  : kyohei が確認依頼/エラー報告メールに返信 → local watcher が Claude セッション resume → 文意判定
+ *   reply_to_secretary  : kyohei が確認依頼/エラー報告メールに返信 → local watcher が run_dialog（キーワード判定: OK / NG）で処理
  *   ignore              : 自社送信のループ（確認依頼が INBOX に入る等）
+ *
+ * 旧 v5 仕様（Claude セッション resume → 文意判定）は v5.1 (2026-05-10) で run_dialog 一本化に統合。
  */
 export type IncomingTriggerType =
   | "incoming_error"
@@ -47,7 +49,7 @@ const SUBJECT_CONFIRM = "【ClipGift 確認依頼】";
 const SUBJECT_REQUEST_NOTIFY = "【ClipGift 要望通知】";
 
 /**
- * v5: 件名だけで判定し、本文の文意判定は local watcher の Claude resume に委譲。
+ * v5.1: 件名だけで判定し、本文判定は local watcher の run_dialog（キーワード判定: OK / NG）に委譲。
  * Email Worker はキーワード判定をしない（誤判定リスクを排除）。
  */
 function classifyMessage(args: {
@@ -72,7 +74,7 @@ function classifyMessage(args: {
   const isReply = /^\s*Re\s*:/i.test(subject);
 
   if (isReply) {
-    // 確認依頼/レビュー依頼への返信 → kyohei 返信、Claude セッションで文意判定
+    // 確認依頼/レビュー依頼への返信 → kyohei 返信、local watcher が run_dialog（キーワード判定: OK / NG）で処理
     const reviewMatch = subject.match(
       /【ClipGift 修正案レビュー依頼】\s*([0-9a-f]{12})/
     );

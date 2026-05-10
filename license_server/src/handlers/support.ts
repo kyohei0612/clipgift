@@ -29,8 +29,14 @@ import {
 const RESEND_API_URL = "https://api.resend.com/emails";
 
 /**
- * レート制限: 同一 IP から 60 秒内に 5 件以上は拒否
+ * レート制限: 同一 IP から 60 秒内に「メール送信通数」5 通以上は拒否
  * KV キー: `support_rate:{IP}`
+ *
+ * 通数ベースの理由（H-1）:
+ * - report_type=request は 2 通送信（通知 + 対応依頼）、user_email ありなら自動受付で +1
+ * - 旧仕様（リクエスト数ベース）だと 5 ヒット/分 = 最大 15 通/分まで通り、
+ *   Resend 100/日枠が 7 ヒット程度で枯渇する攻撃面があった
+ * - そこでメール送信通数を直接カウントし、上限超過時は早期 429 で遮断する
  */
 const RATE_WINDOW_SECONDS = 60;
 const RATE_LIMIT_COUNT = 5;
@@ -61,12 +67,26 @@ export async function handleSupportReport(
     );
   }
 
-  // レート制限
+  // 種別判定（既定はエラー報告、後方互換）
+  const reportType: "error" | "request" =
+    body.report_type === "request" ? "request" : "error";
+
+  // 送信予定通数を見積もり（H-1: 通数ベースのレート制限のため）
+  //   error  : 1 通（運営宛のみ）+ user_email があれば自動受付 +1
+  //   request: 2 通（通知 + 対応依頼）+ user_email があれば自動受付 +1
+  // 自動受付メアドの妥当性は後段で再チェックする（先に通数だけ概算）。
+  const userEmailRaw =
+    typeof body.user_email === "string" ? body.user_email.trim() : "";
+  const willSendAck = userEmailRaw.length > 0; // 概算用（厳密検証は後段）
+  const baseMailCount = reportType === "request" ? 2 : 1;
+  const mailCount = baseMailCount + (willSendAck ? 1 : 0);
+
+  // レート制限（通数ベース）
   const clientIp =
     request.headers.get("cf-connecting-ip") ||
     request.headers.get("x-forwarded-for") ||
     "unknown";
-  const rateOk = await checkRateLimit(env, clientIp);
+  const rateOk = await checkRateLimit(env, clientIp, mailCount);
   if (!rateOk) {
     return errorResponse(
       "invalid_request",
@@ -74,10 +94,6 @@ export async function handleSupportReport(
       429
     );
   }
-
-  // 種別判定（既定はエラー報告、後方互換）
-  const reportType: "error" | "request" =
-    body.report_type === "request" ? "request" : "error";
 
   // 添付ファイル検証（最大 3 枚 / 各 5MB / image/* のみ）
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
@@ -199,39 +215,31 @@ export async function handleSupportReport(
   // ───────────────────────────────────────
   if (body.user_email) {
     const userEmail = String(body.user_email).trim();
-    if (userEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail)) {
+    // M-2: TLD は 2 文字以上を要求（a@b.c のような不正値を弾く）
+    if (userEmail && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(userEmail)) {
       const ackSubject =
         reportType === "request"
           ? "【ClipGift サポート】ご要望を受け付けました"
           : "【ClipGift サポート】エラー報告を受け付けました";
-      const userCommentRaw = String(body.user_comment || "").trim();
-      const excerpt = userCommentRaw.slice(0, 200);
+      // H-2: user_comment のエコーバックを廃止（任意 200 字を ClipGift 名義で
+      // 第三者に送りつけるスパム踏み台になり得たため）。識別情報のみ残す。
       const ackBodyLines: string[] = [
-        "お問い合わせを受け付けました。",
+        "お問い合わせ内容を確認しました。",
         "",
-        "担当者から内容を確認のうえ、数営業日以内にこちらのメールアドレスへご返信いたします。",
+        "担当者が順次対応のうえ、数営業日以内にこちらのメールアドレスへご返信いたします。",
         "",
         "─── 受付内容 ───",
         `受付 ID: ${reportId.slice(0, 12)}`,
         `受付日時: ${receivedAt}`,
         `アプリバージョン: v${body.app_version}`,
-      ];
-      if (excerpt) {
-        ackBodyLines.push(
-          "",
-          "■ いただいた内容（先頭部分）",
-          excerpt + (userCommentRaw.length > 200 ? "..." : "")
-        );
-      }
-      ackBodyLines.push(
         "",
         "─── ご注意 ───",
         "※ このメールは自動送信です。本メールへの返信はできません。",
         "※ 追加のご連絡は support@clipgift.org 宛にお願いいたします。",
         "",
         "--",
-        "ClipGift サポートセンター"
-      );
+        "ClipGift サポートセンター",
+      ];
       try {
         await sendViaResend(env, {
           from: env.SUPPORT_FROM_ADDRESS,
@@ -392,7 +400,8 @@ export async function handleSupportReply(
       400
     );
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(body.to)) {
+  // M-2: TLD は 2 文字以上を要求
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(body.to)) {
     return errorResponse(
       "invalid_request",
       "to のメールアドレス形式が不正です",
@@ -494,17 +503,33 @@ async function sendViaResend(
   }
 }
 
-async function checkRateLimit(env: Env, ip: string): Promise<boolean> {
+/**
+ * レート制限（H-1: メール送信通数ベース）。
+ *
+ * @param mailCount この 1 リクエストで送信予定の通数（1 以上）。
+ *   既存カウント + mailCount が上限を超える場合は拒否（false）。
+ *   通過時は加算分だけ count をインクリメントする。
+ *
+ * 注: TTL は put 毎にウィンドウ先頭からリセットされるが、KV に「最初の put からの
+ * 経過秒」を別途持たせるとコストが増えるため、簡易実装としてリセット型を採用。
+ * 攻撃時の上限ガードが目的であり、多少のスライディングウィンドウずれは許容する。
+ */
+async function checkRateLimit(
+  env: Env,
+  ip: string,
+  mailCount: number = 1
+): Promise<boolean> {
   if (ip === "unknown") {
     return true; // 識別不能なら通過させる（過剰ブロック回避）
   }
+  const add = Math.max(1, Math.floor(mailCount));
   const key = `support_rate:${ip}`;
   const current = (await env.LICENSES.get(key)) || "0";
   const count = parseInt(current, 10) || 0;
-  if (count >= RATE_LIMIT_COUNT) {
+  if (count + add > RATE_LIMIT_COUNT) {
     return false;
   }
-  await env.LICENSES.put(key, String(count + 1), {
+  await env.LICENSES.put(key, String(count + add), {
     expirationTtl: RATE_WINDOW_SECONDS,
   });
   return true;

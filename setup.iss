@@ -1,5 +1,5 @@
 #define MyAppName "ClipGift"
-#define MyAppVersion "1.0.77"
+#define MyAppVersion "1.0.78"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
@@ -87,6 +87,9 @@ Source: "{#SourceDir}\installer_assets\ClipGiftLog.ico"; DestDir: "{app}"; Flags
 
 ; 起動スクリプト
 Source: "{#SourceDir}\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
+
+; エンドユーザー用リカバリスクリプト（auto_update.py のコメントで「除外しない」と明記されている配布対象）
+Source: "{#SourceDir}\scripts\refresh_icon_cache.bat"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\ClipGiftLog.ico"

@@ -35,7 +35,7 @@ class SupportConfig:
     """ローカル側（kyohei さん PC）の設定。アプリ側は直接 SUPPORT_REPORT_ENDPOINT を参照。"""
 
     # IMAP 受信設定
-    IMAP_HOST = os.environ.get("SUPPORT_IMAP_HOST", "imap.mail.yahoo.co.jp")
+    IMAP_HOST = os.environ.get("SUPPORT_IMAP_HOST", "imap.gmail.com")
     IMAP_PORT = int(os.environ.get("SUPPORT_IMAP_PORT", "993"))
     MAIL_USER = os.environ.get("SUPPORT_MAIL_USER", "")
     MAIL_APP_PASSWORD = os.environ.get("SUPPORT_MAIL_APP_PASSWORD", "")

@@ -17,9 +17,14 @@ HEARTBEAT_INTERVAL_DAYS = "30"
 
 # シークレット（wrangler secret put で登録、コミット禁止）:
 #   HMAC_SECRET                  - キー署名用（32 byte 以上のランダム）
-#   ADMIN_BEARER_TOKEN           - /admin/* エンドポイント用
-#   GMAIL_APP_PASSWORD           - Gmail SMTP 用（メール送信時のみ）
-#   SUPPORT_EMAIL_FROM           - 通知元メールアドレス
+#   ADMIN_BEARER_TOKEN           - /admin/* および /support/{notify,reply,pending,processed} 認証用
+#                                  （現状サポート系も同じトークンで認証している。
+#                                   将来分離する場合は SUPPORT_ADMIN_TOKEN を新設予定）
+#   RESEND_API_KEY               - Resend メール送信 API キー
+#   SUPPORT_FROM_ADDRESS         - 送信元メールアドレス（Resend 認証済ドメイン）
+#   SUPPORT_FORWARD_TO           - エラー報告／要望通知の転送先（運営宛）
+#   SUPPORT_FORWARD_TO_REQUEST   - 要望（report_type=request）の対応依頼先
+#   SUPPORT_REPLY_TO             - Reply-To アドレス（任意、未設定なら SUPPORT_FORWARD_TO 流用）
 
 [build]
 command = "npm install"
