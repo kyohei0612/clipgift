@@ -3034,15 +3034,18 @@ function formatFileName(name, front = 5) {
 }
 
 function formatTime(sec) {
-  sec = Math.floor(sec);
-  const hours = Math.floor(sec / 3600);
-  const minutes = Math.floor((sec % 3600) / 60);
-  const seconds = sec % 60;
+  // 0.1 秒刻みで表示（整数切り捨てだと「1 秒刻みでカクつく」体感になるため）
+  const totalSec = Math.max(0, Number(sec) || 0);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  // 秒は小数 1 桁で 0 埋め（例: 03.4 / 12.7）
+  const secStr = seconds.toFixed(1).padStart(4, "0");
 
   if (hours > 0) {
-    return `${hours}:${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+    return `${hours}:${minutes.toString().padStart(2, "0")}:${secStr}`;
   } else {
-    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+    return `${minutes}:${secStr}`;
   }
 }
 
@@ -3578,7 +3581,8 @@ function formatVideoFileName(fileName) {
 function updateClipDurationDisplay() {
   const duration = clipEndSec - clipStartSec;
   const minutes = Math.floor(duration / 60);
-  const seconds = Math.floor(duration % 60);
+  // 0.1 秒刻みで表示（整数切り捨てだと「1 秒刻みでカクつく」体感になるため）
+  const seconds = (duration % 60).toFixed(1);
 
   const displayText =
     minutes > 0
