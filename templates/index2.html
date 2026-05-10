@@ -3922,10 +3922,11 @@ function updateWaveformSegment() {
   }
 }
 
-// ★ 波形スクロール: 速度比例方式（ギア比 0.5）
-// バーを動かした量の 50% を波形がスクロールする「ダイヤルを回す」感覚。
-// 中央 30% ゾーンでは波形静止、端 35% ゾーンに入ると追従発火。
+// ★ 波形スクロール: 速度比例方式（ギア比 0.25）
+// バーを動かした量の 25% を波形がスクロールする「ダイヤルを回す」感覚。
+// バーが端 35% ゾーンに入ると追従発火。中央 30% ゾーンでは波形静止。
 // バーがビュー外に飛び出さないようクランプも入れる。
+// 2026-05-10 kyohei さん体感調整: 0.5 → 0.25（連動を倍遅くして「飛ぶ」感を消す）
 let _waveformLastTime = null;
 
 function _resetWaveformScrollState() {
@@ -3950,10 +3951,10 @@ function scrollWaveformIfNeeded(currentTime) {
 
     let newStart = viewStart;
 
-    // 端ゾーン内ならバーの動きの 50% を波形に反映（ギア比 0.5）
+    // 端ゾーン内ならバーの動きの 25% を波形に反映（ギア比 0.25）
     if (inEdgeZone && _waveformLastTime !== null) {
       const delta = currentTime - _waveformLastTime;
-      newStart = viewStart + delta * 0.5;
+      newStart = viewStart + delta * 0.25;
     }
 
     // クランプ: バーがビュー外（端 5%）に飛ばないよう強制スクロール
