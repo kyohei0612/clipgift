@@ -7,7 +7,14 @@ Claude CLI を subprocess で起動して秘書（/company）モードで仕事�
 - 起動プロンプトで /company 秘書モード → 担当部署振り分けを指示
 - フェーズ別動作:
     - analyzing: 自動でエラー解析・修正・push まで実施 → kyohei に修正完了報告メール
-    - dialog: kyohei 返信を解釈し、追加対応 or ユーザー送信実行
+    - dialog: kyohei 返信をキーワードで判定（OK / NG / それ以外）
+
+【廃止履歴】
+- 2026-05-10: run_dialog_with_resume（Claude セッション resume 方式）を廃止。
+  「No deferred tool marker found in the resumed session」エラーで実用不可。
+  運用方針確定により: 「OK」承認 → 自動テンプレ送信、複雑な要望は kyohei さん
+  手動返信となったため、REVISE / DEFER / ambiguous 判定機能は不要。
+  Phase C は run_dialog（キーワード判定）に一本化。
 """
 
 from __future__ import annotations
@@ -242,151 +249,6 @@ def run_push_and_send_to_user(
 
 
 # ────────────────────────────────────────────────────────────
-# v5: セッション継続方式 — Claude 自身が kyohei 返信を文意で判定
-# ────────────────────────────────────────────────────────────
-
-
-def run_dialog_with_resume(
-    error_hash: str,
-    kyohei_reply: str,
-) -> tuple[Optional[state_machine.IncidentState], str]:
-    """kyohei さんの返信を Claude セッション resume で文意判定する（v5 新方式）。
-
-    state.claude_session_id があれば `--resume` でセッション継続、なければキーワード fallback。
-
-    Returns:
-        (incident, action) のタプル
-        action: "approve" / "revise" / "abort" / "defer" / "ambiguous" / "invalid"
-    """
-    incident = state_machine.load(error_hash)
-    if incident is None:
-        logger.error("state が見つかりません: %s", error_hash)
-        return None, "invalid"
-
-    # 二重発火防止
-    if incident.state in ("done", "executing", "error"):
-        logger.info(
-            "dialog スキップ: 既に %s 状態 hash=%s",
-            incident.state,
-            error_hash,
-        )
-        return incident, "invalid"
-
-    # session_id 不在 → 旧キーワード判定にフォールバック
-    if not incident.claude_session_id:
-        logger.info(
-            "session_id なし、キーワード判定にフォールバック hash=%s",
-            error_hash,
-        )
-        return run_dialog(error_hash, kyohei_reply)
-
-    prompt = _build_dialog_resume_prompt(incident, kyohei_reply)
-    # resume 失敗は fallback で救済されるため WARNING レベルで記録（ノイズ低減）
-    output = _run_claude(
-        prompt,
-        session_id=incident.claude_session_id,
-        resume=True,
-        failure_log_level=logging.WARNING,
-    )
-    if output is None:
-        logger.warning("Claude resume 失敗 → キーワード fallback hash=%s", error_hash)
-        return run_dialog(error_hash, kyohei_reply)
-
-    action = _parse_dialog_action(output)
-    logger.info("Claude 判定: action=%s hash=%s", action, error_hash)
-
-    # action に応じて state 遷移
-    if action == "approve":
-        new_state = state_machine.transition(error_hash, "executing")
-        return new_state, "approve"
-    if action == "abort":
-        new_state = state_machine.transition(error_hash, "error")
-        return new_state, "abort"
-    if action == "revise":
-        # Claude が修正済み（コード or 返信案）。state は awaiting_approval のまま、
-        # 次の kyohei 返信を待つ。Claude が新しい確認依頼メールを送る場合もある。
-        # 修正後のサマリを再保存
-        repair_summary, user_reply_draft, affected, root_cause = (
-            _parse_analyze_output(output)
-        )
-        if repair_summary or user_reply_draft:
-            updated = state_machine.transition(
-                error_hash,
-                "awaiting_approval",
-                repair_summary=(root_cause + "\n\n" + repair_summary).strip()
-                or incident.repair_summary,
-                user_reply_draft=user_reply_draft or incident.user_reply_draft,
-                affected_files=affected or incident.affected_files,
-            )
-            return updated, "revise"
-        return incident, "revise"
-    if action == "defer":
-        # 保留：state そのまま、kyohei さんが再返信するまで待ち
-        logger.info("kyohei 保留 hash=%s（state そのまま）", error_hash)
-        return incident, "defer"
-
-    # ambiguous / invalid: 何もせず、processed として扱う
-    logger.info("判定不能（ambiguous）hash=%s", error_hash)
-    return incident, "ambiguous"
-
-
-_DIALOG_RESUME_INSTRUCTION = """
-あなたが以前送った確認依頼メールに対して、kyohei さんから返信が届きました。
-**この同じセッションの文脈を踏まえて**、kyohei さんの意図を判定してください。
-
-【kyohei さんからの返信本文】
----
-{kyohei_reply}
----
-
-【判定カテゴリ】
-- **APPROVE**（承認）: 「OK」「了解」「よろしく」「進めて」「送って」「いいよ」等、ポジティブな承認意思
-- **REVISE**（修正指示）: 「もう少し〜にして」「ここをこう書き直して」「コードもこう変えて」等、具体的な修正・追加指示
-- **ABORT**（中止）: 「やめて」「キャンセル」「中止」「却下」「やっぱりなし」等、否定的な中止意思
-- **DEFER**（保留）: 「明日返事する」「あとで」「一旦保留」「考える」等、判断を先延ばしする意思
-- **AMBIGUOUS**（不明）: どれにも当てはまらない、または関係ない内容
-
-【判定の方針】
-- 確信が持てない場合は AMBIGUOUS。kyohei さんに再確認メールが行く
-- REVISE の場合は、kyohei さんの修正指示に従って具体的な変更を実施してください
-  - コード修正の指示なら Edit / Write tool で実施（push はしない）
-  - 返信案の修正なら新しい返信文を提示
-- いずれの判定も、必ず最後に出力フォーマットの「## 判定」を 1 行で書く
-
-【出力フォーマット（必ずこの形式で末尾に書く）】
-
-## 原因
-（既に判定済みなら省略可、REVISE なら新たに分かったことがあれば書く）
-
-## 修正サマリ
-- 影響ファイル: （REVISE の場合のみ、なければ「（変更なし）」）
-- 変更内容: （REVISE の場合のみ、なければ「（変更なし）」）
-- push 状況: 未 push（kyohei 承認待ち）
-
-## ユーザー返信案
-{user_email_or_anon} 様
-
-（REVISE で返信案を変えるならここに新版を書く、変えないなら既存と同じ内容を書く）
-
-## 判定
-APPROVE / REVISE / ABORT / DEFER / AMBIGUOUS のいずれか1つ
-"""
-
-
-def _build_dialog_resume_prompt(
-    incident: state_machine.IncidentState,
-    kyohei_reply: str,
-) -> str:
-    safe_reply = mask_log(kyohei_reply or "（返信本文なし）")
-    user_email_label = incident.user_email or "（メアド不明、返信先なし）"
-
-    return _DIALOG_RESUME_INSTRUCTION.format(
-        kyohei_reply=safe_reply,
-        user_email_or_anon=user_email_label,
-    )
-
-
-# ────────────────────────────────────────────────────────────
 # v5: ご要望（incoming_request）の Claude AI 分析 + 返信ドラフト
 # ────────────────────────────────────────────────────────────
 
@@ -448,28 +310,6 @@ def run_analyze_request(
     v5.3 で run_analyze_and_push に統合（Claude が内容で判断するので分け不要）。
     """
     return run_analyze_and_push(error_hash, type_hint="プルダウン: ご要望")
-
-
-def _parse_dialog_action(text: str) -> str:
-    """Claude 出力から「## 判定」セクションの値を抽出。
-
-    Returns: "approve" / "revise" / "abort" / "defer" / "ambiguous" / "invalid"
-    """
-    m = re.search(
-        r"##\s*判定\s*\n\s*(APPROVE|REVISE|ABORT|DEFER|AMBIGUOUS)\b",
-        text,
-        re.IGNORECASE,
-    )
-    if not m:
-        return "invalid"
-    verdict = m.group(1).strip().upper()
-    return {
-        "APPROVE": "approve",
-        "REVISE": "revise",
-        "ABORT": "abort",
-        "DEFER": "defer",
-        "AMBIGUOUS": "ambiguous",
-    }.get(verdict, "invalid")
 
 
 # ────────────────────────────────────────────────────────────
@@ -712,8 +552,8 @@ def _run_claude(
     session_id を指定すると `--session-id <uuid>` で新規セッションを ID 指定で作成し、
     resume=True かつ session_id 指定時は `--resume <uuid>` で既存セッション継続。
 
-    failure_log_level: returncode != 0 時のログレベル。fallback で救済可能な呼び出し
-    （例: run_dialog_with_resume の resume 失敗）は logging.WARNING を渡す。
+    failure_log_level: returncode != 0 時のログレベル。fallback で救済可能な呼び出しでは
+    logging.WARNING を渡してログノイズを抑制する。
     Returns: stdout 文字列（成功時）/ None（失敗時）
     """
     args: list[str] = [

@@ -198,3 +198,23 @@ Flask 製クリップ作成ツールの整理課題。コードレビューで�
 - 🟡 中優先課題 1 件（Q-3、リファクタ系で動作支障なし）
 - 🟢 低優先課題 3 件
 - **販売開始可能な品質**（プロダクション稼働実績 = 本名 ch 2 年 9k 登録）
+
+## 2026-05-10 運用上の既知挙動（実害なし）
+
+### E-1: Cloudflare Email Routing で kyohei さん自己宛メールが Dropped される（5/10 確認）
+
+**現象**: `support@clipgift.org` に届いたメールを Email Routing が `nekodori0612@gmail.com` に転送する際、送信元も `nekodori0612@gmail.com` の場合（kyohei さんのテスト送信時）、Gmail 側の dedup（自己宛 Message-ID 重複排除）で Dropped 扱いになる。
+
+**観測値**: Cloudflare Email Routing summary（Last 7 days）で Dropped 4 件 / Total 11 件（36%）。
+
+**本番影響**: なし。
+- 外部ユーザー → `support@clipgift.org` → `nekodori0612@gmail.com` の転送は **Forwarded で正常配送**（同期間 7 件確認）
+- Gmail dedup は同一アカウント内自己宛のみで発生、外部由来では発生しない
+- 受信失敗・サポート対応漏れには繋がらない
+
+**運用ルール**:
+- **テスト時は Gmail プラスエイリアス `nekodori0612+test@gmail.com` を使う**（dedup 回避）
+- 万一 Phase 1 中に外部ユーザー由来 Dropped が観測されたら `wrangler secret put SUPPORT_REPLY_TO` で `clipgift.dev@gmail.com` に切り替え（案 B 昇格）
+- Phase 2 の Tauri/Stripe 化と同時にメール基盤再設計予定なので根本対応は Phase 2 で
+
+**判断**: 🟢 低優先、コード変更不要、現状維持で OK。詳細調査は `.company/secretary/notes/2026-05-10-decisions.md` 参照。

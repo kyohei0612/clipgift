@@ -316,9 +316,16 @@ def _process_incoming_error_auto_analyze(trigger: dict[str, Any]) -> bool:
 
 
 def _process_reply_to_secretary(trigger: dict[str, Any]) -> bool:
-    """v5: kyohei が確認依頼/エラー報告メールに返信 → Claude セッション resume で文意判定。
+    """kyohei が確認依頼/エラー報告メールに返信 → run_dialog（キーワード判定）で対応決定。
 
-    判定結果に応じて action を実行（approve → push+送信 / revise → 修正済み / abort → error / defer → 保留）。
+    判定結果に応じて action を実行:
+        approve → push + ユーザー返信送信
+        abort   → state を error 化（中止確認ログのみ）
+        invalid → 認識不能コマンド or 二重発火、state 維持（kyohei さん手動対応）
+
+    2026-05-10: run_dialog_with_resume（Claude セッション resume 方式）廃止。
+    REVISE / DEFER / AMBIGUOUS の判定は不要となり、複雑な要望は kyohei さんが
+    手動でサポートメアドから返信する運用に切り替え。
     """
     # error_hash 解決: trigger に含まれていればそれを優先、なければ subject/in_reply_to から検索
     error_hash = trigger.get("error_hash")
@@ -340,18 +347,18 @@ def _process_reply_to_secretary(trigger: dict[str, Any]) -> bool:
             return False
 
     body = trigger.get("body", "")
-    incident_after, action = claude_runner.run_dialog_with_resume(
-        error_hash, body
+    incident_after, action = claude_runner.run_dialog(
+        error_hash, body, report_type="error"
     )
 
     if incident_after is None:
-        logger.warning("dialog_with_resume 失敗 hash=%s", error_hash)
+        logger.warning("run_dialog 失敗 hash=%s", error_hash)
         return False
 
-    # 二重発火 / 既決
+    # 二重発火 / 認識不能コマンド: state 維持、kyohei さんが手動対応
     if action == "invalid":
         logger.info(
-            "二重発火回避 / 不能 hash=%s state=%s",
+            "二重発火回避 / 認識不能コマンド hash=%s state=%s（kyohei 手動対応待ち）",
             error_hash,
             incident_after.state,
         )
@@ -370,27 +377,8 @@ def _process_reply_to_secretary(trigger: dict[str, Any]) -> bool:
         )
         return False
 
-    if action == "revise":
-        # Claude が修正済み（コード or 返信案）→ 新たな確認依頼メールを送る
-        if not notify_review_request(incident_after):
-            logger.warning("REVISE 後の確認依頼メール送信失敗 hash=%s", error_hash)
-            return False
-        logger.info("✓ REVISE 完了 hash=%s（kyohei 再確認待ち）", error_hash)
-        return True
-
     if action == "abort":
         logger.info("✓ 中止確認 hash=%s", error_hash)
-        return True
-
-    if action == "defer":
-        logger.info("kyohei 保留 hash=%s（state 維持、再返信待ち）", error_hash)
-        return True
-
-    if action == "ambiguous":
-        logger.info(
-            "判定不能（ambiguous）hash=%s → kyohei に再確認依頼検討",
-            error_hash,
-        )
         return True
 
     return True
