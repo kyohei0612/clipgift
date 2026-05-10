@@ -3647,7 +3647,10 @@ async function openModal(id, event) {
     videoPlayer.onloadedmetadata = null;
 
     maxSec = Math.floor(videoPlayer.duration);
-    const bufferSec = 600;
+    // ★ バー操作範囲をクリップ前後 1 分に。
+    // 旧 600 秒（前後 10 分）だとバー幅 1000px に対し 1px ≒ 1.2 秒で「ちょっと動かしただけで数秒〜数十秒飛ぶ」感覚になる。
+    // 60 秒なら 1px ≒ 0.12 秒、マウス 1cm（約 38px）≒ 4.5 秒の体感で細かく操作可能。
+    const bufferSec = 60;
 
     const playStartSec = Math.max(clip.startSec - bufferSec, 0);
     let playEndSec = Math.min(clip.endSec + bufferSec, maxSec);
@@ -3847,11 +3850,10 @@ function onDragMove(e) {
   if (dragTarget.id === "startHandle") {
     clipStartSec = Math.min(time, clipEndSec - 0.5);
     clipStartSec = Math.max(clipStartSec, sliderMin);
-    if (peaksInstance && peaksInstance.player) {
-      try {
-        peaksInstance.player.seek(clipStartSec);
-      } catch (err) {}
-    }
+    // ★ ドラッグ中は player.seek を呼ばない。
+    // HTML5 video の seek 解像度（キーフレーム間隔）が 1〜2 秒単位のため、
+    // 連続的な seek が「波形 playhead が 1 秒刻みでカクつく」体感を生む。
+    // ドラッグ終了時（onDragEnd）にまとめて 1 回だけ seek する方針に変更。
   } else if (dragTarget.id === "endHandle") {
     clipEndSec = Math.max(time, clipStartSec + 0.5);
     clipEndSec = Math.min(clipEndSec, sliderMax);
