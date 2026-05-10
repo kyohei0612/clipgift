@@ -192,6 +192,60 @@ export async function handleSupportReport(
     );
   }
 
+  // ───────────────────────────────────────
+  // ユーザーへの自動受付返信（user_email がある場合のみ）
+  // 目的: kyohei PC オフ時にも「届いた」確認を即送ってユーザーの不安を解消する
+  // 失敗しても致命的でないので warn ログのみで処理続行
+  // ───────────────────────────────────────
+  if (body.user_email) {
+    const userEmail = String(body.user_email).trim();
+    if (userEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(userEmail)) {
+      const ackSubject =
+        reportType === "request"
+          ? "【ClipGift サポート】ご要望を受け付けました"
+          : "【ClipGift サポート】エラー報告を受け付けました";
+      const userCommentRaw = String(body.user_comment || "").trim();
+      const excerpt = userCommentRaw.slice(0, 200);
+      const ackBodyLines: string[] = [
+        "お問い合わせを受け付けました。",
+        "",
+        "担当者から内容を確認のうえ、数営業日以内にこちらのメールアドレスへご返信いたします。",
+        "",
+        "─── 受付内容 ───",
+        `受付 ID: ${reportId.slice(0, 12)}`,
+        `受付日時: ${receivedAt}`,
+        `アプリバージョン: v${body.app_version}`,
+      ];
+      if (excerpt) {
+        ackBodyLines.push(
+          "",
+          "■ いただいた内容（先頭部分）",
+          excerpt + (userCommentRaw.length > 200 ? "..." : "")
+        );
+      }
+      ackBodyLines.push(
+        "",
+        "─── ご注意 ───",
+        "※ このメールは自動送信です。本メールへの返信はできません。",
+        "※ 追加のご連絡は support@clipgift.org 宛にお願いいたします。",
+        "",
+        "--",
+        "ClipGift サポートセンター"
+      );
+      try {
+        await sendViaResend(env, {
+          from: env.SUPPORT_FROM_ADDRESS,
+          to: userEmail,
+          subject: ackSubject,
+          text: ackBodyLines.join("\n"),
+          skipReplyTo: true,
+        });
+      } catch (e) {
+        console.warn("自動受付メール送信失敗（非致命）:", e);
+      }
+    }
+  }
+
   // 受信メタを KV に保存（あとで notify / reply で参照する想定）
   try {
     await env.LICENSES.put(

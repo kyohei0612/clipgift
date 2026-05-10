@@ -89,8 +89,12 @@ $Action = New-ScheduledTaskAction `
     -Argument "`"$WatchScript`"" `
     -WorkingDirectory $ProjectRoot
 
-# Trigger: ユーザーログオン時に起動（常駐ループなので一度起動すれば走り続ける）
-$Trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+# Trigger:
+#   1. ユーザーログオン時に起動（常駐ループなので一度起動すれば走り続ける）
+#   2. PC 起動時にも起動（Boot Trigger / 自動ログインが入らないコールドスタート保険）
+$LogonTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$BootTrigger  = New-ScheduledTaskTrigger -AtStartup
+$Trigger = @($LogonTrigger, $BootTrigger)
 
 # Settings: ネット必須、バッテリー駆動でも実行、5 分後に再起動
 $Settings = New-ScheduledTaskSettingsSet `
