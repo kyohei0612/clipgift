@@ -12,17 +12,23 @@
 #  - GitHub Actions の cron は最短 5 分間隔、実際の発火は数分遅れることあり
 #  - スパム判定回避で投稿時刻に ±15 分のランダムを付加（poster.py 側で実装）
 
+# ─── ローンチ前運用（5/12〜5/21）────────────────────
+# achievement / teaser / launch カテゴリは {{booth_url}} 必須テンプレで構成されており、
+# BOOTH 出品（5/22）前は変数未定義でテンプレ展開失敗する。よってローンチ前は全枠 daily に振り替える。
+# 5/22 BOOTH ローンチ時に achievement / teaser / launch へ切り替える（schedule.yaml の手動編集）。
+# Bluesky も 1 日 2 投稿（朝 + 夕）に揃えた（2026-05-10 kyohei さん判断）。
 schedules:
   - name: weekday_morning
     cron: "0 0 * * 1-5"        # JST 9:00 平日
     platforms:
       x: daily
       threads: daily
+      bluesky: daily
 
   - name: weekday_evening
     cron: "0 10 * * 1-5"       # JST 19:00 平日
     platforms:
-      x: achievement
+      x: daily                  # ローンチ前 achievement → daily（5/22 後に戻す）
       threads: daily
       bluesky: daily
 
@@ -31,13 +37,14 @@ schedules:
     platforms:
       x: daily
       threads: daily
+      bluesky: daily
 
   - name: weekend_evening
     cron: "0 12 * * 6,0"       # JST 21:00 土日
     platforms:
-      x: teaser
-      threads: longform
-      bluesky: launch
+      x: daily                  # ローンチ前 teaser → daily（5/22 後に戻す）
+      threads: longform         # 物語型は維持（妻ストーリー / 動機など、v3 テンプレで活用）
+      bluesky: daily            # ローンチ前 launch → daily（5/22 後に戻す）
 
   # 以下は workflow_dispatch（手動トリガー）専用、cron では発火しない
   - name: note_announce
