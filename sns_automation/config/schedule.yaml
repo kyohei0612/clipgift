@@ -29,32 +29,31 @@
 # 5/22 BOOTH ローンチ時に achievement / teaser / launch へ切り替える（schedule.yaml の手動編集）。
 # Bluesky も 1 日 2 投稿（朝 + 夕）に揃えた（2026-05-10 kyohei さん判断）。
 schedules:
+  # ★ X は API 課金問題（402 Payment Required、Free tier では POST /2/tweets 不可）のため
+  #   2026-05-11 から自動投稿対象外、kyohei さん手動運用に切替。
+  #   Phase 2 で Basic プラン ($100/月) 検討、もしくは手動継続。
   - name: weekday_morning
     cron: "0 0 * * 1-5"        # JST 9:00 平日
     platforms:
-      x: daily
       threads: daily
       bluesky: daily
 
   - name: weekday_evening
     cron: "0 10 * * 1-5"       # JST 19:00 平日
     platforms:
-      x: daily                  # ローンチ前 achievement → daily（5/22 後に戻す）
       threads: daily
       bluesky: daily
 
   - name: weekend_morning
     cron: "0 2 * * 6,0"        # JST 11:00 土日
     platforms:
-      x: daily
       threads: daily
       bluesky: daily
 
   - name: weekend_evening
     cron: "0 12 * * 6,0"       # JST 21:00 土日
     platforms:
-      x: daily                  # ローンチ前 teaser → daily（5/22 後に戻す）
-      threads: longform         # 物語型は維持（妻ストーリー / 動機など、v3 テンプレで活用）
+      threads: longform         # 物語型は維持（動機 / 観察など。妻ストーリーは廃止）
       bluesky: daily            # ローンチ前 launch → daily（5/22 後に戻す）
 
   # 以下は workflow_dispatch（手動トリガー）専用、cron では発火しない
