@@ -1522,33 +1522,6 @@ function onDragStart(e) {
   originalClipStartSec = clipStartSec;
   originalClipEndSec = clipEndSec;
 
-  // ★ startHandleを触ったら波形と再生位置をそのバーの位置に移動
-  if (dragTarget.id === "startHandle") {
-    // Peaks.jsのplayheadを開始位置に移動
-    if (peaksInstance && peaksInstance.player) {
-      try {
-        peaksInstance.player.seek(clipStartSec);
-      } catch (err) {
-        console.warn("⚠️ player.seekエラー:", err);
-      }
-    }
-    // 波形も開始位置を真ん中に表示
-    if (peaksInstance) {
-      try {
-        const zoomview = peaksInstance.views.getView("zoomview");
-        if (zoomview && typeof zoomview.setStartTime === "function") {
-          const waveStart = Math.max(
-            clipStartSec - WAVEFORM_VIEW_DURATION / 2,
-            0,
-          );
-          zoomview.setStartTime(waveStart);
-        }
-      } catch (err) {
-        console.warn("⚠️ 波形スクロールエラー:", err);
-      }
-    }
-  }
-
   document.removeEventListener("mousemove", onDragMove);
   document.removeEventListener("mouseup", onDragEnd);
   document.removeEventListener("touchmove", onDragMove);
@@ -1680,28 +1653,31 @@ function updateWaveformSegment() {
   }
 }
 
-// ★ バーが画面外に行ったら波形をページ送り
+// ★ バーがビュー両端 25% ゾーンに近づいたら、波形を lerp で滑らかに追従させる
 function scrollWaveformIfNeeded(currentTime) {
   if (!peaksInstance) return;
 
   try {
     const zoomview = peaksInstance.views.getView("zoomview");
     if (!zoomview) return;
-
     const viewStart = zoomview.getStartTime();
-    const viewEnd = viewStart + WAVEFORM_VIEW_DURATION;
+    const viewWidth = WAVEFORM_VIEW_DURATION;
+    const viewEnd = viewStart + viewWidth;
 
-    // 現在のバー位置が表示範囲外なら移動
-    if (currentTime < viewStart) {
-      // 左に行き過ぎた → 前のページへ
-      const newStart = Math.max(currentTime - WAVEFORM_VIEW_DURATION * 0.1, 0);
-      zoomview.setStartTime(newStart);
-      console.log("⬅️ 波形を前へ:", newStart);
-    } else if (currentTime > viewEnd) {
-      // 右に行き過ぎた → 次のページへ
-      const newStart = currentTime - WAVEFORM_VIEW_DURATION * 0.9;
-      zoomview.setStartTime(newStart);
-      console.log("➡️ 波形を次へ:", newStart);
+    // 端から 25% ゾーン内ならスクロール、それ以外（中央 50%）は静止
+    const edgeZone = viewWidth * 0.25;
+    const distFromLeft = currentTime - viewStart;
+    const distFromRight = viewEnd - currentTime;
+
+    if (distFromLeft < edgeZone || distFromRight < edgeZone) {
+      // バーがビュー中央に来るのを目標に、現在位置から 20% ずつ lerp（線形補間）
+      const targetStart = currentTime - viewWidth / 2;
+      const newStart = viewStart + (targetStart - viewStart) * 0.2;
+      const clampedStart = Math.max(newStart, 0);
+      // 微小変化はスキップ（描画コスト削減）
+      if (Math.abs(clampedStart - viewStart) > 0.05) {
+        zoomview.setStartTime(clampedStart);
+      }
     }
   } catch (err) {
     console.warn("⚠️ 波形スクロールエラー:", err);
