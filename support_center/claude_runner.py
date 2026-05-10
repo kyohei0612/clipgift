@@ -281,7 +281,13 @@ def run_dialog_with_resume(
         return run_dialog(error_hash, kyohei_reply)
 
     prompt = _build_dialog_resume_prompt(incident, kyohei_reply)
-    output = _run_claude(prompt, session_id=incident.claude_session_id, resume=True)
+    # resume 失敗は fallback で救済されるため WARNING レベルで記録（ノイズ低減）
+    output = _run_claude(
+        prompt,
+        session_id=incident.claude_session_id,
+        resume=True,
+        failure_log_level=logging.WARNING,
+    )
     if output is None:
         logger.warning("Claude resume 失敗 → キーワード fallback hash=%s", error_hash)
         return run_dialog(error_hash, kyohei_reply)
@@ -699,12 +705,15 @@ def _run_claude(
     prompt: str,
     session_id: Optional[str] = None,
     resume: bool = False,
+    failure_log_level: int = logging.ERROR,
 ) -> Optional[str]:
     """claude --dangerously-skip-permissions --print で実行（コンソール非表示）。
 
     session_id を指定すると `--session-id <uuid>` で新規セッションを ID 指定で作成し、
     resume=True かつ session_id 指定時は `--resume <uuid>` で既存セッション継続。
 
+    failure_log_level: returncode != 0 時のログレベル。fallback で救済可能な呼び出し
+    （例: run_dialog_with_resume の resume 失敗）は logging.WARNING を渡す。
     Returns: stdout 文字列（成功時）/ None（失敗時）
     """
     args: list[str] = [
@@ -738,7 +747,8 @@ def _run_claude(
         return None
 
     if result.returncode != 0:
-        logger.error(
+        logger.log(
+            failure_log_level,
             "Claude CLI エラー終了 (returncode=%s): %s",
             result.returncode,
             (result.stderr or "")[:500],
