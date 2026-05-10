@@ -100,8 +100,22 @@ def load_last_font():
 
 
 def save_last_font(font_name):
+    """
+    前回フォント設定をアトミックに書き込む。
+    一時ファイルに書いてから os.replace で置き換えることで、
+    書き込み中の強制終了 / ディスク満杯時に 0 byte ファイルが残るのを防ぐ。
+    （mp4inchatnagasi.py の safe_write_progress と同パターン）
+    """
+    tmp_path = LAST_FONT_FILE + ".tmp"
     try:
-        with open(LAST_FONT_FILE, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump({"font_name": font_name}, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, LAST_FONT_FILE)
     except Exception as e:
         logger.warning("save_last_font エラー: %s", e)
+        try:
+            os.remove(tmp_path)
+        except Exception:
+            pass

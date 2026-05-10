@@ -74,6 +74,28 @@ def _is_excluded(rel_path: str) -> bool:
         return True
     return any(rel_path.startswith(prefix) for prefix in EXCLUDE_PREFIXES)
 
+
+def _excluded_top_dirs() -> set:
+    """
+    EXCLUDE_PREFIXES から「トップレベルのディレクトリ名」集合を導出する。
+
+    os.walk の dirs[:] フィルタで使うため、ディレクトリ全体を丸ごと除外する
+    プレフィックス（例: ".company/"）のみを対象とする。
+    階層深いプレフィックス（例: "support_center/incoming/"）や
+    ファイル指定（例: ".env"）は対象外（_is_excluded 側で拾う）。
+    """
+    top_dirs = set()
+    for prefix in EXCLUDE_PREFIXES:
+        # ディレクトリプレフィックスは "/" で終わる。ファイル指定は除外。
+        if not prefix.endswith("/"):
+            continue
+        # 末尾 "/" を除いて "/" を含まない = トップレベル 1 段
+        name = prefix[:-1]
+        if "/" in name or not name:
+            continue
+        top_dirs.add(name)
+    return top_dirs
+
 # 更新状態をメモリで管理
 _update_state = {
     "status": "idle",   # idle / checking / updating / done / error
@@ -320,8 +342,10 @@ def run_update_async():
             with _update_lock:
                 _update_state["message"] = "不要ファイルを削除中..."
             github_files = set(all_files) | {"version.json"}
+            # EXCLUDE_PREFIXES からトップレベル除外ディレクトリを導出 + os.walk 必須スキップ
+            skip_dirs = _excluded_top_dirs() | {".git", "bin", "__pycache__"}
             for root, dirs, local_files in os.walk(BASE_DIR):
-                dirs[:] = [d for d in dirs if d not in {".git", "bin", "__pycache__", ".company", ".github", ".claude", "sns_automation"}]
+                dirs[:] = [d for d in dirs if d not in skip_dirs]
                 for fname in local_files:
                     local_abs = os.path.join(root, fname)
                     rel = os.path.relpath(local_abs, BASE_DIR).replace(os.sep, "/")

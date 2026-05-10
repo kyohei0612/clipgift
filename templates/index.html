@@ -443,6 +443,13 @@
         min-height: 16px;
       }
 
+      /* W-1: ダウンロードキャンセルボタン領域 */
+      .progress-actions {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 10px;
+      }
+
       /* ── ステータス ── */
       .status-pill {
         display: inline-flex;
@@ -579,6 +586,13 @@
       ::-webkit-scrollbar-track { background: transparent; }
       ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; border: 2px solid var(--bg); }
       ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+      /* === UIUX 改善 #9 (2026-05-10): フォーカスリング統一 === */
+      :where(button, input, select, textarea, a, [tabindex]):focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--accent-soft-2, rgba(39, 154, 217, 0.24));
+        border-color: var(--accent);
+      }
     </style>
   </head>
   <body>
@@ -824,6 +838,18 @@
             <div class="progress-fill" id="progress-bar-fill"></div>
           </div>
           <div class="progress-msg" id="progress-label"></div>
+          <!-- W-1: ダウンロードキャンセル（_is_downloading 中のみ表示）-->
+          <div class="progress-actions">
+            <button
+              id="cancelDownloadBtn"
+              class="btn-secondary"
+              type="button"
+              style="display:none;"
+              aria-label="ダウンロードをキャンセル"
+            >
+              ダウンロードをキャンセル
+            </button>
+          </div>
         </div>
 
         <div class="log-wrap" id="log-console-wrap">
@@ -893,7 +919,41 @@
       const progressLabel   = document.getElementById("progress-label");
       const logConsoleWrap  = document.getElementById("log-console-wrap");
       const logConsole      = document.getElementById("log-console");
+      const cancelDownloadBtn = document.getElementById("cancelDownloadBtn");
       let _lastLogTail = "";
+
+      // W-1: /cancel_download を叩いてダウンロード subprocess を停止する
+      function showCancelDownloadBtn() {
+        if (cancelDownloadBtn) {
+          cancelDownloadBtn.style.display = "inline-flex";
+          cancelDownloadBtn.disabled = false;
+        }
+      }
+      function hideCancelDownloadBtn() {
+        if (cancelDownloadBtn) {
+          cancelDownloadBtn.style.display = "none";
+        }
+      }
+      if (cancelDownloadBtn) {
+        cancelDownloadBtn.addEventListener("click", () => {
+          if (cancelDownloadBtn.disabled) return;
+          cancelDownloadBtn.disabled = true;
+          fetch("/cancel_download", { method: "POST" })
+            .then(r => r.json())
+            .then(data => {
+              if (data && data.success) {
+                showStatus("error", "ダウンロードをキャンセルしました");
+              } else {
+                showStatus("error", (data && data.message) || "キャンセルに失敗しました");
+                cancelDownloadBtn.disabled = false;
+              }
+            })
+            .catch(() => {
+              showStatus("error", "キャンセル要求の送信に失敗しました");
+              cancelDownloadBtn.disabled = false;
+            });
+        });
+      }
 
       function setProgressBar(percent, message, phase) {
         progressBarWrap.style.display = "block";
@@ -906,6 +966,7 @@
       function hideProgressBar() {
         progressBarWrap.style.display = "none";
         progressBarFill.style.width = "0%";
+        hideCancelDownloadBtn();
       }
 
       function updateLogConsole(logs) {
@@ -923,6 +984,8 @@
         _lastLogTail = "";
         logConsole.textContent = "";
         logConsoleWrap.style.display = "none";
+        // W-1: ダウンロード開始（=ポーリング開始）でキャンセルボタンを表示
+        showCancelDownloadBtn();
         let fetchUrl = progressUrl;
         if (!progressUrl.startsWith("/")) {
           fetchUrl = `/get-progress-file?path=${encodeURIComponent(progressUrl)}`;
@@ -947,6 +1010,7 @@
                 clearInterval(intervalId);
                 document.getElementById("nextButton").disabled = false;
                 downloadBtn.disabled = false;
+                hideCancelDownloadBtn();
               } else if (data.progress >= 0) {
                 const phase = data.phase || "";
                 if (phase && phase !== lastPhase) {

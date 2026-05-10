@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 # 30 日 + 7 日（オフライン猶予合計 37 日）
 GRACE_EXTENSION_DAYS = 7
 
+# ハートビートが連続でこの回数失敗したら、ユーザーに警告ログを出す
+# （Workers 障害で「裏でずっとオフライン」のまま grace が無限延長され続ける事態を検知するため）
+HEARTBEAT_FAILURE_WARN_THRESHOLD = 3
+
 
 @dataclass
 class AuthResult:
@@ -94,12 +98,14 @@ def _try_heartbeat(gate: PlanGate, fingerprint: str) -> AuthResult:
         response = activation_client.verify(gate.key, fingerprint)
         # credential を更新（refresh）
         new_payload = _build_credential_payload(response, gate.key, fingerprint)
+        # ハートビート成功 → 連続失敗カウントを 0 にリセット
+        new_payload["consecutive_heartbeat_failures"] = 0
         credential_store.save_credential(new_payload, fingerprint)
         plan_gate.set_global(PlanGate(new_payload))
         logger.info("ハートビート成功、credential 更新")
         return AuthResult(ok=True, plan=gate.plan)
     except NetworkError as e:
-        # ネットワーク失敗 → 猶予 7 日延長
+        # ネットワーク失敗 → 猶予 7 日延長 + 連続失敗カウント +1
         logger.warning("ハートビート失敗（ネットワーク）: %s", e)
         return _extend_grace(gate, fingerprint)
     except LicensingError as e:
@@ -114,17 +120,58 @@ def _try_heartbeat(gate: PlanGate, fingerprint: str) -> AuthResult:
 
 def _extend_grace(gate: PlanGate, fingerprint: str) -> AuthResult:
     """ネットワーク失敗時の猶予期間延長"""
+    # 防御的: _credential が None の場合は dict() で TypeError になるためガードする
+    # （通常 PlanGate は credential dict から生成されるため None にはならないが、
+    # 将来の改修や異常系で None が紛れ込む可能性に備える）
+    if gate._credential is None:
+        logger.warning(
+            "credential が読み込まれていません、grace 延長をスキップして再認証要求"
+        )
+        credential_store.delete_credential()
+        return AuthResult(
+            ok=False,
+            message="ライセンス情報が読み込めませんでした、再認証が必要です",
+        )
+
     new_next_verify = (
         datetime.now(timezone.utc) + timedelta(days=GRACE_EXTENSION_DAYS)
     ).isoformat()
     payload = dict(gate._credential)
     payload["next_verify_at"] = new_next_verify
-    credential_store.save_credential(payload, fingerprint)
+
+    # 連続失敗カウントを +1（旧 credential には存在しないので 0 デフォルト）
+    try:
+        prev_failures = int(payload.get("consecutive_heartbeat_failures", 0) or 0)
+    except (TypeError, ValueError):
+        prev_failures = 0
+    new_failures = prev_failures + 1
+    payload["consecutive_heartbeat_failures"] = new_failures
+
+    try:
+        credential_store.save_credential(payload, fingerprint)
+    except OSError as e:
+        # credential 保存失敗（ディスク不足等）でも grace 自体は延長として扱う
+        # （次回起動時に再度 verify を試みる）
+        logger.warning("credential 保存失敗（grace 延長は継続）: %s", e)
+
     plan_gate.set_global(PlanGate(payload))
     logger.info(
-        "オフライン猶予を %d 日延長しました（ネットワーク回復後に再検証）",
+        "オフライン猶予を %d 日延長しました（ネットワーク回復後に再検証、連続失敗 %d 回）",
         GRACE_EXTENSION_DAYS,
+        new_failures,
     )
+
+    # 閾値に到達したらユーザー向け警告（毎回ではなく「3 回目の到達時のみ」）
+    # ui_dialogs に汎用通知関数が無いため、現状は logger.warning のみ。
+    # UIUX 君が後でログ拾って通知 UI を出す想定。
+    if new_failures == HEARTBEAT_FAILURE_WARN_THRESHOLD:
+        logger.warning(
+            "⚠️ ライセンスサーバー疎通失敗が %d 回連続しています。"
+            "ネットワーク接続をご確認ください（オフライン猶予は延長されていますが、"
+            "長期間続くとライセンスが無効化される可能性があります）",
+            new_failures,
+        )
+
     return AuthResult(ok=True, plan=gate.plan)
 
 
@@ -165,4 +212,6 @@ def _build_credential_payload(
         "extension_expires_at": server_response.get("extension_expires_at"),
         "next_verify_at": server_response.get("next_verify_at"),
         "issued_at": datetime.now(timezone.utc).isoformat(),
+        # サーバー疎通成功時は連続失敗カウントを 0 にリセット
+        "consecutive_heartbeat_failures": 0,
     }

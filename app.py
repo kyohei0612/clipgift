@@ -132,6 +132,55 @@ _heartbeat_lock = threading.Lock()
 _is_downloading = False  # ダウンロード中フラグ
 _is_downloading_lock = threading.Lock()
 
+# 動画ダウンロード subprocess の参照（キャンセル用）
+# - _current_dl_proc: run_download 内の subprocess.Popen を保持。/cancel_download から terminate するため。
+# - _dl_proc_lock: _current_dl_proc の参照取得・更新を保護（短時間のみ保持、subprocess 操作はロック外）
+_current_dl_proc = None
+_dl_proc_lock = threading.Lock()
+
+
+# === ディスク容量チェックヘルパー ===
+
+# しきい値: DL 開始前（推定動画サイズ事前不明、10h 1080p 配信を想定）
+# 10h 1080p は 8〜15 GB に達するケースが多いため 10 GiB（≒ 10.7 GB）を最低ラインに設定
+_DL_MIN_FREE_BYTES = 10 * 1024 * 1024 * 1024  # 10 GB（GiB）
+
+# しきい値: クリップ生成（一時ディレクトリ + Downloads 出力で動画サイズ × 倍率）
+# 一時 + 出力で約 1.8 倍が現実的（2.5 倍は過大評価で空き少なめのユーザーに誤検知が出ていた）
+_CLIP_DISK_MULTIPLIER = 1.8
+
+
+def _check_disk_space(required_bytes, target_dir):
+    """
+    target_dir が属するボリュームの空き容量が required_bytes 以上かチェックする。
+
+    Args:
+        required_bytes: 必要な空き容量（bytes）
+        target_dir: チェック対象ディレクトリ（str / Path）
+
+    Returns:
+        十分なら None、不足ならユーザー向け日本語エラーメッセージ（str）。
+        shutil.disk_usage 自体が例外を投げた場合は None を返す（チェック不能 = 通す側に倒す）。
+    """
+    try:
+        usage = shutil.disk_usage(str(target_dir))
+        free = usage.free
+    except Exception as e:
+        # 容量取得自体が失敗した場合はブロックしない（ネットワークドライブ等の特殊ケースを想定）
+        logger.warning("disk_usage 取得失敗 (target=%s): %s", target_dir, e)
+        return None
+
+    if free >= required_bytes:
+        return None
+
+    # 計算は 1024**3（GiB）ベース。ユーザー向けには「GB（GiB）」併記で意味を取りやすくする
+    required_gib = required_bytes / (1024 ** 3)
+    free_gib = free / (1024 ** 3)
+    return (
+        f"空き容量不足: 推定 {required_gib:.1f} GB（GiB）必要 / 残り {free_gib:.1f} GB（GiB）。"
+        f"不要なファイルを削除してから再実行してください。"
+    )
+
 def _heartbeat_watchdog():
     """
     ハートビート監視（自動終了は廃止、ユーザー明示の閉じる操作のみで終了）
@@ -425,6 +474,12 @@ def download_yt_video_chat():
     downloads_dir = str(Path.home() / "Downloads")
     os.makedirs(downloads_dir, exist_ok=True)
 
+    # ディスク容量チェック（事前推定不可なので最低 5 GB を要求）
+    disk_err = _check_disk_space(_DL_MIN_FREE_BYTES, downloads_dir)
+    if disk_err is not None:
+        logger.warning("DL 開始前の容量チェック失敗: %s", disk_err)
+        return jsonify({"success": False, "message": disk_err}), 400
+
     # 進捗ファイル
     dl_progress_path = os.path.join(BASE_DIR, "dl_progress.json")
     with open(dl_progress_path, "w", encoding="utf-8") as f:
@@ -448,7 +503,7 @@ def download_yt_video_chat():
                 del _dl_logs_global[: len(_dl_logs_global) - _DL_LOG_MAX]
 
     def run_download():
-        global _is_downloading
+        global _is_downloading, _current_dl_proc
         with _is_downloading_lock:
             _is_downloading = True
         try:
@@ -467,6 +522,9 @@ def download_yt_video_chat():
                 encoding="utf-8",
                 errors="backslashreplace",
             )
+            # キャンセル可能にするためグローバルへ参照を保存
+            with _dl_proc_lock:
+                _current_dl_proc = proc
             output_lines = []
             for line in iter(proc.stdout.readline, ""):
                 line = line.rstrip()
@@ -505,6 +563,8 @@ def download_yt_video_chat():
             except Exception:
                 pass
         finally:
+            with _dl_proc_lock:
+                _current_dl_proc = None
             with _is_downloading_lock:
                 _is_downloading = False
 
@@ -699,6 +759,20 @@ def process_clips():
             video_file.save(video_path)
             chat_file.save(chat_path)
 
+        # ディスク容量チェック: 動画サイズ × 2.5 を一時ディレクトリ側ボリュームに要求
+        # （tempfile.gettempdir と Downloads は別ボリュームの可能性があるため、より厳しい temp 側で見る）
+        try:
+            video_size = os.path.getsize(video_path)
+        except OSError as e:
+            logger.warning("動画サイズ取得失敗（容量チェックスキップ）: %s", e)
+            video_size = 0
+        if video_size > 0:
+            required_clip_bytes = int(video_size * _CLIP_DISK_MULTIPLIER)
+            disk_err = _check_disk_space(required_clip_bytes, temp_dir)
+            if disk_err is not None:
+                logger.warning("クリップ生成前の容量チェック失敗: %s", disk_err)
+                return jsonify({"error": disk_err}), 400
+
         logger.info("💡 clipsの数: %d", len(clips))
         logger.debug("clipsの中身: %s", json.dumps(clips, ensure_ascii=False))
 
@@ -866,6 +940,12 @@ def process_clips():
                     _write_progress({"progress": -1, "message": f"全体失敗: {str(e)}", "current_clip": 0})
                 except Exception as e2:
                     logger.warning("⚠️ 進捗ファイル書き込みで再エラー: %s", e2)
+                # 失敗状態を UI に確実に見せるため、成功パスと同じ COMPLETION_HOLD_SEC 秒だけ progress.json を保持。
+                # 直後の finally で temp_dir ごと消えてしまうと「失敗 → 即未開始」のチラつきが発生するため。
+                try:
+                    time.sleep(config.COMPLETION_HOLD_SEC)
+                except Exception:
+                    pass
             finally:
                 # 状態をまとめてクリア（watchdog の誤検知を防ぐため _is_processing も落とす）
                 with _state_lock:
@@ -921,6 +1001,34 @@ def cancel_process():
         return jsonify({"success": True, "message": "処理をキャンセルしました"})
     else:
         return jsonify({"success": False, "message": "処理中のプロセスがありません"})
+
+
+@app.route("/cancel_download", methods=["POST"])
+def cancel_download():
+    """
+    実行中の動画ダウンロード subprocess をキャンセルする。
+
+    /cancel_process と同じパターン:
+      1. ロック内で proc 参照をスナップショット
+      2. ロック外で _terminate_then_kill（subprocess 操作にロックを巻き込まない）
+      3. _is_downloading フラグも明示的に False に戻す
+         （run_download.finally でも落とすが、UI が即座に状態取得できるよう先回り）
+    """
+    global _is_downloading, _current_dl_proc
+    with _dl_proc_lock:
+        proc = _current_dl_proc
+    if proc is None or proc.poll() is not None:
+        # フラグだけ落とす（プロセスは既に無いので安全）
+        with _is_downloading_lock:
+            _is_downloading = False
+        return jsonify({"success": False, "message": "ダウンロード中のプロセスがありません"})
+
+    _terminate_then_kill(proc)
+    # フラグを先回りで落とす（run_download の finally でも落ちるが、UI 応答性のため）
+    with _is_downloading_lock:
+        _is_downloading = False
+    logger.info("🛑 ダウンロードをキャンセルしました")
+    return jsonify({"success": True, "message": "ダウンロードをキャンセルしました"})
 
 
 @app.route("/check-update", methods=["GET"])
@@ -1151,9 +1259,43 @@ def report_error_route():
         local_version = auto_update.get_local_version()
         app_version = local_version.get("version", "unknown")
 
-        # 直近のプロセスログを取得
-        with _process_logs_lock:
-            log_lines = list(_process_logs)
+        # 現在のフェーズを判定（ログ送信元の区別用）
+        # downloading: DL 中 / processing: クリップ生成中 / idle: 待機中
+        # サポート対応で「DL 失敗直後の報告に古いクリップ生成ログが混在する」混乱を避ける目的。
+        with _is_downloading_lock:
+            is_dl_now = _is_downloading
+        with _state_lock:
+            is_proc_now = _is_processing
+        if is_dl_now:
+            current_phase = "downloading"
+        elif is_proc_now:
+            current_phase = "processing"
+        else:
+            current_phase = "idle"
+
+        # 直近のプロセスログを取得（フェーズに応じて採取元を切り替え）
+        # - processing: クリップ生成ログ
+        # - downloading: ダウンロードログ
+        # - idle: 両方をマージ（直近の操作からの再現を補助）
+        if current_phase == "downloading":
+            with _dl_logs_global_lock:
+                log_lines = list(_dl_logs_global)
+        elif current_phase == "processing":
+            with _process_logs_lock:
+                log_lines = list(_process_logs)
+        else:
+            with _process_logs_lock:
+                proc_lines = list(_process_logs)
+            with _dl_logs_global_lock:
+                dl_lines = list(_dl_logs_global)
+            # idle 時は両方を採取（区切りを入れて混在をマーク）
+            log_lines = []
+            if dl_lines:
+                log_lines.append("--- [download logs] ---")
+                log_lines.extend(dl_lines)
+            if proc_lines:
+                log_lines.append("--- [process logs] ---")
+                log_lines.extend(proc_lines)
         error_log = "\n".join(log_lines)
 
         # ライセンスキー（credential 化された値、なければ空）
@@ -1169,6 +1311,9 @@ def report_error_route():
 
         # 追加環境情報
         extra_env: dict = {}
+        # フェーズ情報を env_info に同梱（既存 Workers 側のスキーマを壊さず、
+        # サポート確認時にどのフェーズで報告されたかを判別できるようにする）
+        extra_env["phase"] = current_phase
         try:
             import imageio_ffmpeg
             extra_env["ffmpeg_path"] = "<bundled>"
@@ -1177,32 +1322,36 @@ def report_error_route():
             pass
 
         # support_center 経由で Workers に送信
+        # B-1 修正: 同期送信は最大 15 秒 Flask メインループを占有するため、
+        # スレッドで非同期化し、即座に受付応答（accepted）を返す。
+        # 送信失敗はログのみ（UI へのリアルタイム通知は行わない＝シンプル路線）。
         from support_center.error_reporter import report_error, ErrorReportError
-        try:
-            response = report_error(
-                app_version=app_version,
-                license_key=license_key,
-                user_email=user_email,
-                user_comment=user_comment,
-                error_log=error_log,
-                extra_env=extra_env,
-                attachments=attachments,
-                report_type=report_type,
-            )
-            return jsonify({
-                "success": True,
-                "message": "エラー報告を送信しました。サポートチームが内容を確認します。",
-                "report_id": response.get("report_id", ""),
-            })
-        except ErrorReportError as send_err:
-            logger.warning("エラー報告送信失敗: %s", send_err)
-            return jsonify({
-                "success": False,
-                "message": (
-                    "エラー報告の送信に失敗しました。"
-                    "ネットワークをご確認のうえ、しばらく時間を置いて再送信してください。"
-                ),
-            }), 503
+
+        def _send_report_async():
+            try:
+                report_error(
+                    app_version=app_version,
+                    license_key=license_key,
+                    user_email=user_email,
+                    user_comment=user_comment,
+                    error_log=error_log,
+                    extra_env=extra_env,
+                    attachments=attachments,
+                    report_type=report_type,
+                )
+            except ErrorReportError as send_err:
+                logger.warning("エラー報告送信失敗（非同期）: %s", send_err)
+            except Exception as send_err:
+                logger.warning("エラー報告送信中に予期せぬ例外（非同期）: %s", send_err)
+
+        threading.Thread(target=_send_report_async, daemon=True).start()
+
+        return jsonify({
+            "success": True,
+            "accepted": True,
+            "message": "エラー報告を受け付けました。サポートチームが内容を確認します。",
+            "report_id": "",
+        }), 202
 
     except Exception as e:
         logger.error("report_error_route 例外: %s", e)
@@ -1213,10 +1362,87 @@ def report_error_route():
         }), 500
 
 
+def _check_python_executable_or_exit():
+    """起動時に Python 実行ファイルの可用性を検証する。
+    クリップ生成は subprocess.Popen で別 Python プロセスを起動するため、
+    パス解決が失敗すると WinError 2 で握り潰される。
+    ここで早期に検出してユーザーに分かりやすく案内する。
+    """
+    try:
+        python_exe = get_python_exe()
+    except Exception as exc:  # pragma: no cover - 防御的
+        logger.error("Python パス解決中に例外: %s", exc)
+        python_exe = None
+
+    ok = False
+    if python_exe:
+        try:
+            result = subprocess.run(
+                [python_exe, "-c", "print('ok')"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            ok = (result.returncode == 0 and "ok" in (result.stdout or ""))
+            if not ok:
+                logger.error(
+                    "Python 動作確認 NG: rc=%s stdout=%s stderr=%s",
+                    result.returncode,
+                    (result.stdout or "")[:200],
+                    (result.stderr or "")[:200],
+                )
+        except FileNotFoundError as exc:
+            logger.error("Python 実行ファイルが見つかりません: %s (%s)", python_exe, exc)
+        except subprocess.TimeoutExpired:
+            logger.error("Python 動作確認がタイムアウトしました: %s", python_exe)
+        except Exception as exc:
+            logger.error("Python 動作確認中に予期せぬエラー: %s", exc)
+
+    if ok:
+        logger.info("Python 動作確認 OK: %s", python_exe)
+        return
+
+    # NG → ユーザーへダイアログ表示してから終了
+    msg_title = "ClipGift 起動エラー"
+    msg_body = (
+        "Python が正しくインストールされていません。\n"
+        "ClipGift のインストーラーを再実行してください。\n\n"
+        "問題が解決しない場合は support@clipgift.app までご連絡ください。"
+    )
+    # tkinter.messagebox を使う（Windows 標準で追加依存なし）
+    # licensing/ui_dialogs はブラウザ前提の対話 UI で重いため、起動失敗の単純な通知には不向き。
+    try:
+        import tkinter as _tk
+        from tkinter import messagebox as _mb
+        _root = _tk.Tk()
+        _root.withdraw()
+        _mb.showerror(msg_title, msg_body)
+        _root.destroy()
+    except Exception as dialog_err:
+        logger.error("ダイアログ表示に失敗: %s", dialog_err)
+        # フォールバック: Windows の msg コマンド
+        try:
+            subprocess.run(
+                ["msg", "*", f"{msg_title}: {msg_body}"],
+                timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except Exception:
+            # それも失敗したらログのみ（既に上で error 出力済み）
+            pass
+
+    sys.exit(1)
+
+
 if __name__ == "__main__":
 
     # 前回の自動更新が中断していた場合は .bak からロールバックする
     auto_update.check_and_recover_from_failed_update()
+
+    # Python 実行ファイルの可用性チェック（NG ならダイアログ表示して終了）
+    # ライセンス認証より先に行い、subprocess 起動不能な状態で先へ進ませない。
+    _check_python_executable_or_exit()
 
     # ライセンス認証チェック（NG なら起動中止）
     # 開発用バイパス: 環境変数 CLIPGIFT_SKIP_LICENSE=1 で認証スキップ

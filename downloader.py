@@ -530,14 +530,18 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
         best_stream = all_video_streams[0] if all_video_streams else None
 
         if best_stream:
-            print(
-                f"[QUESTION] {best_stream.resolution} でダウンロードしますか？ (Y/N): ",
-                end="",
-                flush=True,
+            actual_resolution = best_stream.resolution or "不明"
+            fallback_message = (
+                f"⚠️ {max_resolution}p 以下の画質が見つかりませんでした。"
+                f"最高画質 {actual_resolution} で DL を続行します"
             )
-            response = input().strip().upper()
-            if response != "Y":
-                raise Exception("ユーザーによりキャンセルされました")
+            print(f"[INFO] {fallback_message}", flush=True)
+            if progress_path:
+                safe_write_json(progress_path, {
+                    "progress": 0,
+                    "message": fallback_message,
+                    "phase": "画質フォールバック",
+                })
             video_stream = best_stream
         else:
             raise Exception("利用可能な動画ストリームがありません")

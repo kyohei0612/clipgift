@@ -504,7 +504,6 @@ ul li { margin-bottom: 8px; }
   margin-bottom: 16px;
   border-bottom: 1px solid var(--border);
 }
-#modalTitleLabel { font-size: 15px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.005em; }
 
 #modal input[type="text"] {
   width: 100%;
@@ -607,6 +606,216 @@ body.light-mode #waveform-container { background: var(--slate-100); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; border: 2px solid var(--bg); }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* ========================================================================
+ * UIUX 改善 Phase A (2026-05-10) — プロデザイナー君指示書対応
+ * ======================================================================== */
+
+/* === #1 モーダルヘッダ動的化（クリップ番号 / タイトル表示） === */
+#modalHeader {
+  justify-content: space-between;
+  gap: 16px;
+}
+.modal-header-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 16px;
+}
+.clip-counter {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.clip-title-display {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+.clip-title-display.is-empty {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-style: italic;
+}
+
+/* === #2 バー位置保存サイン (ハンドル保存グロー) === */
+@keyframes saveBlip {
+  0%   { box-shadow: 0 0 12px rgba(39, 154, 217, 0.4); }
+  30%  { box-shadow: 0 0 20px rgba(16, 185, 129, 0.85); }
+  100% { box-shadow: 0 0 12px rgba(39, 154, 217, 0.4); }
+}
+.rangeSliderHandle.just-saved { animation: saveBlip 600ms ease-out; }
+
+/* === #3 リセットボタン用 セカンダリ / ターシャリ ボタン === */
+.modalBtnGroup { align-items: center; flex-wrap: wrap; }
+.btn-spacer { flex: 1; }
+
+button.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: none;
+}
+button.btn-secondary:hover {
+  background: var(--surface-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+  box-shadow: none;
+  transform: none;
+}
+button.btn-secondary:active { transform: scale(0.98); }
+
+button.btn-tertiary {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid transparent;
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: none;
+}
+button.btn-tertiary:hover {
+  color: var(--text-primary);
+  background: var(--surface-2);
+  box-shadow: none;
+  transform: none;
+}
+
+/* === #6 インラインエラー (input-error / シェイク / バナー) === */
+.input-error {
+  border-color: var(--error) !important;
+  box-shadow: 0 0 0 3px var(--error-soft) !important;
+}
+@keyframes inputShake {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-4px); }
+  40%      { transform: translateX(4px); }
+  60%      { transform: translateX(-3px); }
+  80%      { transform: translateX(3px); }
+}
+.input-error.shake { animation: inputShake 0.4s ease; }
+
+.field-error-message {
+  display: block;
+  font-size: 12px;
+  color: var(--error);
+  margin-top: 4px;
+  line-height: 1.4;
+  animation: fadeIn 0.2s ease-out;
+}
+.field-error-message::before { content: "⚠ "; }
+
+.modal-banner {
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  border: 1px solid;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: fadeIn 0.2s ease-out;
+}
+.modal-banner.error   { background: var(--error-soft);   border-color: var(--error);   color: var(--error); }
+.modal-banner.success { background: var(--success-soft); border-color: var(--success); color: var(--success); }
+.modal-banner.warning { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
+
+/* === #8 プライマリボタンの視覚階層（破壊的操作の差別化） === */
+button.btn-danger {
+  background: var(--error);
+  color: #FFFFFF;
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: var(--transition);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+button.btn-danger:hover {
+  background: #DC2626;
+  box-shadow: 0 0 0 4px var(--error-soft);
+  transform: translateY(-1px);
+}
+button.btn-danger:active { transform: scale(0.98); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08); }
+button.btn-danger:disabled {
+  background: var(--border);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+/* === #9 フォーカスリング統一 (低詳細度で既存スタイルを上書きしない) === */
+:where(button, input, select, textarea, a, [tabindex]):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft-2);
+  border-color: var(--accent);
+}
+
+/* === #11 トースト通知 === */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  min-width: 240px;
+  max-width: 360px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: toastIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.toast.is-leaving { animation: toastOut 0.2s ease-in forwards; }
+.toast .toast-icon { font-size: 16px; flex-shrink: 0; }
+.toast .toast-msg  { flex: 1; line-height: 1.4; color: var(--text-primary); word-break: break-word; }
+
+.toast.success { border-left: 3px solid var(--success); }
+.toast.error   { border-left: 3px solid var(--error); }
+.toast.warning { border-left: 3px solid var(--warning); }
+.toast.info    { border-left: 3px solid var(--brand-500); }
+
+@keyframes toastIn  { from { transform: translateX(20px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+@keyframes toastOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(20px); opacity: 0; } }
 </style>
   <script src="/static/theme.js" defer></script>
   </head>
@@ -1066,10 +1275,13 @@ body.light-mode #waveform-container { background: var(--slate-100); }
           id="modal"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="modalTitleLabel"
+          aria-labelledby="modalClipCounter"
         >
           <div id="modalHeader">
-            <div id="modalTitleLabel">動画プレビュー・クリップ編集</div>
+            <div class="modal-header-meta">
+              <span class="clip-counter" id="modalClipCounter">クリップ 1 / 1</span>
+              <span class="clip-title-display is-empty" id="modalClipTitleDisplay">未入力</span>
+            </div>
           </div>
 
           <video id="videoPlayer" controls></video>
@@ -1111,8 +1323,10 @@ body.light-mode #waveform-container { background: var(--slate-100); }
               aria-label="クリップタイトル入力"
             />
             <div class="modalBtnGroup">
-              <button id="queueAddBtn">キューへ追加</button>
-              <button id="cancelModalBtn">キャンセル</button>
+              <button id="resetClipBtn" class="btn-secondary" type="button" title="AI が最初に推定した範囲に戻す">↺ 元に戻す</button>
+              <span class="btn-spacer"></span>
+              <button id="cancelModalBtn" class="btn-tertiary" type="button">キャンセル</button>
+              <button id="queueAddBtn" class="confirm" type="button">キューへ追加</button>
             </div>
           </div>
         </div>
@@ -1132,6 +1346,9 @@ body.light-mode #waveform-container { background: var(--slate-100); }
         <button id="detailCloseBtn" type="button">閉じる</button>
       </div>
     </div>
+
+    <!-- #11 トースト通知コンテナ -->
+    <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="false"></div>
 
     <script>
       // ダークモード切替
@@ -1376,13 +1593,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch("/api/license-deactivate", { method: "POST" });
       const data = await res.json();
       if (data.success) {
-        alert("解除完了しました。アプリを再起動して再認証してください。");
-        location.reload();
+        if (typeof showInlineToast === "function") {
+          showInlineToast("解除完了。再起動してください", "success", 2500);
+        }
+        setTimeout(() => location.reload(), 1500);
       } else {
-        alert("解除失敗: " + (data.message || "不明なエラー"));
+        if (typeof showInlineToast === "function") {
+          showInlineToast("解除失敗: " + (data.message || "不明なエラー"), "error", 4000);
+        }
       }
     } catch (err) {
-      alert("通信エラー: " + err.message);
+      if (typeof showInlineToast === "function") {
+        showInlineToast("通信エラー: " + err.message, "error", 4000);
+      }
     } finally {
       deactivateBtn.disabled = false;
       deactivateBtn.textContent = "このマシンから解除";
@@ -1852,11 +2075,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const endThreshold = document.getElementById("end_threshold")?.value;
 
     if (!chatFileObj) {
-      alert("チャットファイルを選択してください！");
+      if (typeof showInlineToast === "function") {
+        showInlineToast("チャットファイルを選択してください", "warning");
+      }
       return;
     }
     if (!keywords) {
-      alert("キーワードを入力してください！");
+      const kw = document.getElementById("keywordsInput");
+      if (kw && typeof setFieldError === "function") {
+        setFieldError(kw, "キーワードを入力してください");
+      } else if (typeof showInlineToast === "function") {
+        showInlineToast("キーワードを入力してください", "warning");
+      }
       return;
     }
 
@@ -1869,7 +2099,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const videoFileObj = videoFile.files[0];
     if (!videoFileObj) {
-      alert("動画ファイルを選択してください！");
+      if (typeof showInlineToast === "function") {
+        showInlineToast("動画ファイルを選択してください", "warning");
+      }
       return;
     }
 
@@ -1909,14 +2141,57 @@ document.addEventListener("DOMContentLoaded", () => {
           });
 
           if (data.success && data.clips) {
+            // #2 解析直後に各クリップへ originalRange を刻む（再オープン時のリセット用）
+            try {
+              if (Array.isArray(clips)) {
+                clips.forEach((c) => {
+                  if (c.originalStartSec === undefined) c.originalStartSec = c.startSec;
+                  if (c.originalEndSec === undefined) c.originalEndSec = c.endSec;
+                });
+              }
+            } catch (_) {}
+
+            // W-2: 前回終了時に保存していた編集範囲（startSec/endSec/title）を id 一致でマージ。
+            // 解析サイクル内では full 配列のフレッシュ値が来るが、前回ユーザーが手動調整した範囲は
+            // restore で上書きする（次回起動時の保険）。マージ後 persistClipsToStorage() で再保存。
+            try {
+              if (typeof restoreClipsFromStorage === "function" && Array.isArray(clips)) {
+                const saved = restoreClipsFromStorage();
+                if (Array.isArray(saved) && saved.length) {
+                  let restoredCount = 0;
+                  const savedById = new Map(saved.map((s) => [s.id, s]));
+                  clips.forEach((c) => {
+                    const s = savedById.get(c.id);
+                    if (!s) return;
+                    if (typeof s.startSec === "number") c.startSec = s.startSec;
+                    if (typeof s.endSec === "number") c.endSec = s.endSec;
+                    if (typeof s.title === "string" && s.title) c.title = s.title;
+                    restoredCount++;
+                  });
+                  if (restoredCount > 0 && typeof showInlineToast === "function") {
+                    showInlineToast("前回の編集状態を復元しました", "success", 2500);
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn("restoreClipsFromStorage 失敗:", e);
+            }
+
             renderClipsList();
+            try {
+              if (typeof persistClipsToStorage === "function") persistClipsToStorage();
+            } catch (_) {}
           } else {
-            alert("解析結果が空です。");
+            if (typeof showInlineToast === "function") {
+              showInlineToast("解析結果が空です", "warning");
+            }
           }
         })
         .catch((err) => {
           console.error("❌ 解析リクエスト失敗:", err);
-          alert("解析に失敗しました。もう一度お試しください。");
+          if (typeof showInlineToast === "function") {
+            showInlineToast("解析に失敗しました。もう一度お試しください", "error", 4000);
+          }
         });
     };
   });
@@ -1990,13 +2265,26 @@ document.addEventListener("DOMContentLoaded", () => {
       clip.title = modalTitleInput?.value.trim() || "";
 
       if (!clip.title) {
-        alert("⚠️ タイトルを入力してください！");
+        if (modalTitleInput && typeof setFieldError === "function") {
+          setFieldError(modalTitleInput, "タイトルを入力してください");
+          modalTitleInput.focus();
+        } else if (typeof showInlineToast === "function") {
+          showInlineToast("タイトルを入力してください", "warning");
+        }
         return;
+      }
+      if (modalTitleInput && typeof clearFieldError === "function") {
+        clearFieldError(modalTitleInput);
       }
 
       clip.startSec = startSec;
       clip.endSec = endSec;
+      // #2 originalRange を初回のみ刻む
+      if (clip.originalStartSec === undefined) clip.originalStartSec = startSec;
+      if (clip.originalEndSec === undefined) clip.originalEndSec = endSec;
+      if (typeof persistClipsToStorage === "function") persistClipsToStorage();
 
+      let added = false;
       if (!queue.some((c) => c.id === clip.id)) {
         queue.push({
           id: `clip_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -2004,6 +2292,7 @@ document.addEventListener("DOMContentLoaded", () => {
           startSec: clip.startSec,
           endSec: clip.endSec,
         });
+        added = true;
         console.log("✅ キューに追加:", queue);
       }
 
@@ -2011,6 +2300,9 @@ document.addEventListener("DOMContentLoaded", () => {
       saveQueueState();
       updateBatchButtonMode();
       closeModal();
+      if (added && typeof showInlineToast === "function") {
+        showInlineToast("クリップをキューに追加しました", "success");
+      }
     });
   }
 
@@ -2149,7 +2441,9 @@ document.addEventListener("DOMContentLoaded", () => {
   startDownloadBtn.addEventListener("click", async () => {
     console.log("🚀 一括生成ボタンがクリックされました");
     if (!videoFile.files[0] || !chatFile.files[0]) {
-      alert("動画ファイルとチャットCSVを選択してください😊");
+      if (typeof showInlineToast === "function") {
+        showInlineToast("動画ファイルとチャット CSV を選択してください", "warning");
+      }
       return;
     }
 
@@ -2869,7 +3163,9 @@ function startDownload() {
 
   if (!window.clips.length) {
     console.warn("⚠️ キューが空です。処理を中断します。");
-    alert("キューにクリップが追加されていません！");
+    if (typeof showInlineToast === "function") {
+      showInlineToast("キューにクリップが追加されていません", "warning");
+    }
     return;
   }
 
@@ -2890,7 +3186,9 @@ function startDownload() {
 
   if (!clipsJson || clipsJson === "[]") {
     console.error("❌ 送信するclipsが空です。");
-    alert("送信するクリップが設定されていません！");
+    if (typeof showInlineToast === "function") {
+      showInlineToast("送信するクリップが設定されていません", "error", 4000);
+    }
     resetDownloadUI();
     return;
   }
@@ -2901,7 +3199,9 @@ function startDownload() {
 
   if (!videoInput.files[0] || !chatInput.files[0]) {
     console.error("❌ 動画ファイルまたはチャットファイルが未選択です");
-    alert("動画ファイルとチャットファイルを選択してください！");
+    if (typeof showInlineToast === "function") {
+      showInlineToast("動画ファイルとチャットファイルを選択してください", "warning");
+    }
     resetDownloadUI();
     return;
   }
@@ -3015,6 +3315,21 @@ async function openModal(id, event) {
   if (!clip) return;
 
   currentClipId = id;
+
+  // === Phase A #1 / #3: ヘッダ動的更新 + originalRange 確保 ===
+  try {
+    if (typeof ensureOriginalRange === "function") ensureOriginalRange(clip);
+    if (typeof updateModalHeaderForClip === "function") {
+      const idx = clips.findIndex((c) => c.id === id);
+      updateModalHeaderForClip(clip, idx, clips.length);
+    }
+    // モーダル内のフィールドエラーは新しいクリップを開くたびにクリア
+    if (typeof clearFieldError === "function" && modalTitleInput) {
+      clearFieldError(modalTitleInput);
+    }
+  } catch (e) {
+    console.warn("⚠️ openModal Phase A 補強失敗:", e);
+  }
 
   if (currentClipElement) {
     currentClipElement.classList.remove("highlight");
@@ -3260,10 +3575,22 @@ function onDragEnd(e) {
   }
 
   const handleId = dragTarget.id;
+  const handleEl = dragTarget;
 
   dragTarget.classList.remove("dragging");
   dragTarget = null;
   isDragging = false;
+
+  // === Phase A #2: ドラッグ終了で clip に範囲を反映 + 保存サイン ===
+  try {
+    if (typeof commitCurrentClipRange === "function") commitCurrentClipRange();
+    if (handleEl) {
+      handleEl.classList.add("just-saved");
+      setTimeout(() => handleEl.classList.remove("just-saved"), 650);
+    }
+  } catch (err) {
+    console.warn("⚠️ onDragEnd Phase A 補強失敗:", err);
+  }
 
   document.removeEventListener("mousemove", onDragMove);
   document.removeEventListener("mouseup", onDragEnd);
@@ -3328,6 +3655,244 @@ function scrollWaveformIfNeeded(currentTime) {
   } catch (err) {
     console.warn("⚠️ 波形スクロールエラー:", err);
   }
+}
+
+/* ========================================================================
+ * UIUX 改善 Phase A (2026-05-10) — プロデザイナー君指示書対応
+ * 改善 #1, #2, #3, #4, #6, #11 のロジック
+ * ======================================================================== */
+
+// === #11 トースト通知 =====================================================
+const TOAST_ICON = { success: "✓", error: "✕", warning: "⚠", info: "ℹ" };
+
+function showInlineToast(message, kind = "info", durationMs = 3000) {
+  const container = document.getElementById("toastContainer");
+  if (!container) return;
+  const el = document.createElement("div");
+  el.className = `toast ${String(kind)}`;
+  el.setAttribute("role", kind === "error" ? "alert" : "status");
+  const iconSpan = document.createElement("span");
+  iconSpan.className = "toast-icon";
+  iconSpan.textContent = TOAST_ICON[kind] || "ℹ";
+  const msgSpan = document.createElement("span");
+  msgSpan.className = "toast-msg";
+  msgSpan.textContent = String(message ?? "");
+  el.appendChild(iconSpan);
+  el.appendChild(msgSpan);
+  container.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("is-leaving");
+    el.addEventListener("animationend", () => el.remove(), { once: true });
+    // animationend が発火しない環境のフェイルセーフ
+    setTimeout(() => { try { el.remove(); } catch (_) {} }, 600);
+  }, Math.max(500, durationMs | 0));
+}
+window.showInlineToast = showInlineToast;
+
+// === #6 インラインエラー / モーダルバナー（alert 置き換え用ヘルパ） ====
+function setFieldError(inputEl, message) {
+  if (!inputEl) return;
+  inputEl.classList.add("input-error", "shake");
+  setTimeout(() => inputEl.classList.remove("shake"), 400);
+  const parent = inputEl.parentElement;
+  if (!parent) return;
+  let msgEl = parent.querySelector(":scope > .field-error-message");
+  if (!msgEl) {
+    msgEl = document.createElement("span");
+    msgEl.className = "field-error-message";
+    inputEl.insertAdjacentElement("afterend", msgEl);
+  }
+  msgEl.textContent = String(message ?? "");
+  inputEl.setAttribute("aria-invalid", "true");
+  // 入力修正で自動解除（1 回だけ束縛）
+  if (!inputEl.__errorClearBound) {
+    inputEl.addEventListener("input", () => clearFieldError(inputEl));
+    inputEl.__errorClearBound = true;
+  }
+}
+function clearFieldError(inputEl) {
+  if (!inputEl) return;
+  inputEl.classList.remove("input-error");
+  inputEl.removeAttribute("aria-invalid");
+  const parent = inputEl.parentElement;
+  if (!parent) return;
+  const msgEl = parent.querySelector(":scope > .field-error-message");
+  if (msgEl) msgEl.remove();
+}
+function showModalBanner(modalEl, kind, message, autoHideMs = 0) {
+  if (!modalEl) return;
+  let banner = modalEl.querySelector(":scope > .modal-banner");
+  if (!banner) {
+    banner = document.createElement("div");
+    modalEl.insertBefore(banner, modalEl.firstChild);
+  }
+  banner.className = `modal-banner ${String(kind)}`;
+  banner.textContent = String(message ?? "");
+  banner.setAttribute("role", kind === "error" ? "alert" : "status");
+  if (autoHideMs > 0) {
+    setTimeout(() => { try { banner.remove(); } catch (_) {} }, autoHideMs);
+  }
+  return banner;
+}
+
+// === #2 localStorage で範囲を永続化 ======================================
+// W-3: 命名統一。既存の clipgift_queue_v1 等とアンダースコア型に揃える。
+const STORAGE_KEY_CLIPS = "clipgift_clips_v1";
+function persistClipsToStorage() {
+  try {
+    if (!Array.isArray(clips)) return;
+    const minimal = clips.map((c) => ({
+      id: c.id,
+      title: c.title ?? "",
+      startSec: c.startSec,
+      endSec: c.endSec,
+      originalStartSec: c.originalStartSec,
+      originalEndSec: c.originalEndSec,
+    }));
+    localStorage.setItem(STORAGE_KEY_CLIPS, JSON.stringify(minimal));
+  } catch (e) {
+    console.warn("clips 保存失敗:", e);
+  }
+}
+function restoreClipsFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_CLIPS);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) {
+    return null;
+  }
+}
+window.persistClipsToStorage = persistClipsToStorage;
+
+// 解析直後 / クリップ生成時に originalStartSec を初回のみ刻む
+function ensureOriginalRange(clip) {
+  if (!clip) return;
+  if (clip.originalStartSec === undefined && typeof clip.startSec === "number") {
+    clip.originalStartSec = clip.startSec;
+  }
+  if (clip.originalEndSec === undefined && typeof clip.endSec === "number") {
+    clip.originalEndSec = clip.endSec;
+  }
+}
+
+// === #1 モーダルヘッダ動的更新 ===========================================
+function updateModalHeaderForClip(clip, idx, total) {
+  const counterEl = document.getElementById("modalClipCounter");
+  const titleDispEl = document.getElementById("modalClipTitleDisplay");
+  if (counterEl) counterEl.textContent = `クリップ ${idx + 1} / ${total}`;
+  if (titleDispEl) {
+    const t = (clip?.title || "").trim();
+    if (t === "") {
+      titleDispEl.textContent = `クリップ ${idx + 1}`;
+      titleDispEl.classList.add("is-empty");
+    } else {
+      titleDispEl.textContent = t;
+      titleDispEl.classList.remove("is-empty");
+    }
+  }
+}
+
+// === #2 / #3 共通: 現在のクリップに範囲を反映 ===========================
+function commitCurrentClipRange() {
+  if (typeof currentClipId === "undefined" || currentClipId == null) return;
+  if (!Array.isArray(clips)) return;
+  const clip = clips.find((c) => c.id === currentClipId);
+  if (!clip) return;
+  if (typeof clipStartSec === "number") clip.startSec = clipStartSec;
+  if (typeof clipEndSec === "number") clip.endSec = clipEndSec;
+  persistClipsToStorage();
+}
+window.commitCurrentClipRange = commitCurrentClipRange;
+
+// === Phase A 配線 (DOMContentLoaded 後に実行) ============================
+function __phaseAWireUp() {
+  // --- #1 タイトル入力中のヘッダ同期 ---
+  const titleInput = document.getElementById("modalTitleInput");
+  if (titleInput && !titleInput.__headerSyncBound) {
+    titleInput.addEventListener("input", () => {
+      const titleDispEl = document.getElementById("modalClipTitleDisplay");
+      if (!titleDispEl) return;
+      const idx = (Array.isArray(clips) && currentClipId != null)
+        ? clips.findIndex((c) => c.id === currentClipId) : -1;
+      const v = titleInput.value.trim();
+      if (v === "") {
+        titleDispEl.textContent = idx >= 0 ? `クリップ ${idx + 1}` : "未入力";
+        titleDispEl.classList.add("is-empty");
+      } else {
+        titleDispEl.textContent = v;
+        titleDispEl.classList.remove("is-empty");
+      }
+    });
+    titleInput.__headerSyncBound = true;
+  }
+
+  // openModal / onDragEnd への #1 / #2 連動は同一スクリプト内 (各関数本体) に直接埋め込み済み
+
+  // --- #3 リセットボタン ---
+  const resetBtn = document.getElementById("resetClipBtn");
+  if (resetBtn && !resetBtn.__phaseABound) {
+    resetBtn.addEventListener("click", () => {
+      try {
+        if (typeof currentClipId === "undefined" || currentClipId == null) return;
+        if (!Array.isArray(clips)) return;
+        const clip = clips.find((c) => c.id === currentClipId);
+        if (!clip) return;
+        if (clip.originalStartSec === undefined || clip.originalEndSec === undefined) {
+          showInlineToast("元の範囲が記録されていません", "warning");
+          return;
+        }
+        // 同一 <script> 内なのでスクリプトスコープの clipStartSec / clipEndSec を直接書き換え
+        clipStartSec = clip.originalStartSec;
+        clipEndSec = clip.originalEndSec;
+        clip.startSec = clip.originalStartSec;
+        clip.endSec = clip.originalEndSec;
+        if (typeof updateSliderUI === "function") updateSliderUI();
+        if (typeof updateClipDurationDisplay === "function") updateClipDurationDisplay();
+        if (typeof updateWaveformSegment === "function") updateWaveformSegment();
+        const vp = document.getElementById("videoPlayer");
+        if (vp) {
+          try { vp.currentTime = clip.originalStartSec; } catch (_) {}
+        }
+        persistClipsToStorage();
+        showInlineToast("元の範囲に戻しました", "success");
+      } catch (e) {
+        console.warn("resetClipBtn 失敗:", e);
+      }
+    });
+    resetBtn.__phaseABound = true;
+  }
+
+  // --- #4 Esc / 外側クリックで閉じる ---
+  const overlay = document.getElementById("modalOverlay");
+  if (overlay && !window.__modalDismissBound) {
+    const tryClose = () => {
+      if (overlay.style.display !== "flex") return;
+      try {
+        if (typeof closeModal === "function") closeModal();
+        else { overlay.style.display = "none"; }
+      } catch (_) { overlay.style.display = "none"; }
+    };
+    document.addEventListener("keydown", (e) => {
+      if (overlay.style.display !== "flex") return;
+      if (e.key !== "Escape") return;
+      if (e.isComposing) return;
+      e.preventDefault();
+      tryClose();
+    });
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) tryClose();
+    });
+    window.__modalDismissBound = true;
+  }
+}
+
+// 既存スクリプトが先に DOMContentLoaded で要素を取得しているので、
+// ここでは追加配線のみ。既に DOM 準備完了なら即実行。
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", __phaseAWireUp, { once: true });
+} else {
+  __phaseAWireUp();
 }
     </script>
   
