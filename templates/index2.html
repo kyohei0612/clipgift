@@ -3924,11 +3924,13 @@ function updateWaveformSegment() {
   }
 }
 
-// ★ 波形スクロール: 速度比例方式（ギア比 0.25）
-// バーを動かした量の 25% を波形がスクロールする「ダイヤルを回す」感覚。
+// ★ 波形スクロール: 速度比例方式（ギア比 0.125）
+// バーを動かした量の 12.5% を波形がスクロールする「ダイヤルを回す」感覚。
 // バーが端 35% ゾーンに入ると追従発火。中央 30% ゾーンでは波形静止。
-// バーがビュー外に飛び出さないようクランプも入れる。
-// 2026-05-10 kyohei さん体感調整: 0.5 → 0.25（連動を倍遅くして「飛ぶ」感を消す）
+// クランプは「バーがビュー外に出る寸前で端に張り付く」だけの最小化版（強制ジャンプ廃止）。
+// 2026-05-10 kyohei さん体感調整:
+//   0.5 → 0.25 → 0.125（さらに倍遅く）
+//   クランプ強制 1.5 秒ジャンプ → バー端張り付きのみに変更（「2 秒とぶ」を消す）
 let _waveformLastTime = null;
 
 function _resetWaveformScrollState() {
@@ -3953,18 +3955,20 @@ function scrollWaveformIfNeeded(currentTime) {
 
     let newStart = viewStart;
 
-    // 端ゾーン内ならバーの動きの 25% を波形に反映（ギア比 0.25）
+    // 端ゾーン内ならバーの動きの 12.5% を波形に反映（ギア比 0.125）
     if (inEdgeZone && _waveformLastTime !== null) {
       const delta = currentTime - _waveformLastTime;
-      newStart = viewStart + delta * 0.25;
+      newStart = viewStart + delta * 0.125;
     }
 
-    // クランプ: バーがビュー外（端 5%）に飛ばないよう強制スクロール
-    const safety = viewWidth * 0.05;
-    if (currentTime - newStart < safety) {
-      newStart = currentTime - viewWidth * 0.1;     // 左端から 10% に戻す
-    } else if (currentTime - newStart > viewWidth - safety) {
-      newStart = currentTime - viewWidth * 0.9;     // 右端から 90% に戻す
+    // クランプ: バーがビュー外に完全に出るのを防ぐ最小限の補正のみ。
+    // バーがビュー左端より左 → 波形左端をバー位置に揃える（バーが左端張り付き）。
+    // バーがビュー右端より右 → 波形右端をバー位置に揃える（バーが右端張り付き）。
+    // → 強制ジャンプ無し、バーは常に画面内で見え続ける。
+    if (currentTime < newStart) {
+      newStart = currentTime;
+    } else if (currentTime > newStart + viewWidth) {
+      newStart = currentTime - viewWidth;
     }
 
     newStart = Math.max(newStart, 0);
