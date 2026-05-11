@@ -3432,6 +3432,13 @@ document.addEventListener("DOMContentLoaded", () => {
       );
       const fontSelect = document.getElementById("fontSelect");
       formData.append("font_name", fontSelect ? fontSelect.value : "");
+      // フォント設定モーダル由来の追加パラメータ（色 / サイズ / ON-OFF）
+      const _commentColor = document.getElementById("commentColor");
+      const _commentFontsize = document.getElementById("commentFontsize");
+      const _commentOverlay = document.getElementById("commentOverlayEnabled");
+      formData.append("comment_color", _commentColor ? _commentColor.value : "#FFFFFF");
+      formData.append("comment_fontsize", _commentFontsize ? _commentFontsize.value : "50");
+      formData.append("comment_overlay_enabled", _commentOverlay ? _commentOverlay.value : "true");
 
       const res = await fetchWithRetry("/process_clips", {
         method: "POST",
@@ -4736,6 +4743,13 @@ function startDownload() {
   formData.append("clips", clipsJson);
   const _fontSelect = document.getElementById("fontSelect");
   formData.append("font_name", _fontSelect ? _fontSelect.value : "");
+  // フォント設定モーダル由来の追加パラメータ（色 / サイズ / ON-OFF）
+  const _commentColor2 = document.getElementById("commentColor");
+  const _commentFontsize2 = document.getElementById("commentFontsize");
+  const _commentOverlay2 = document.getElementById("commentOverlayEnabled");
+  formData.append("comment_color", _commentColor2 ? _commentColor2.value : "#FFFFFF");
+  formData.append("comment_fontsize", _commentFontsize2 ? _commentFontsize2.value : "50");
+  formData.append("comment_overlay_enabled", _commentOverlay2 ? _commentOverlay2.value : "true");
 
   fetch("/process_clips", { method: "POST", body: formData })
     .then((res) => {
@@ -5443,7 +5457,9 @@ function __phaseAWireUp() {
     resetBtn.__phaseABound = true;
   }
 
-  // --- #4 Esc / 外側クリックで閉じる ---
+  // --- #4 Esc で閉じる（外側クリックは意図的に無効化 / 2026-05-12 kyohei さん指示）
+  // 外側クリックで閉じると編集中の範囲調整が誤操作で吹き飛ぶため、Esc または
+  // × ボタンのみで閉じるようにする。
   const overlay = document.getElementById("modalOverlay");
   if (overlay && !window.__modalDismissBound) {
     const tryClose = () => {
@@ -5460,9 +5476,7 @@ function __phaseAWireUp() {
       e.preventDefault();
       tryClose();
     });
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) tryClose();
-    });
+    // 外側クリックは意図的にバインドしない（リクエスト復活時はこの行を戻す）
     window.__modalDismissBound = true;
   }
 }
