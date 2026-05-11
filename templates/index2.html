@@ -1735,16 +1735,31 @@ button.btn-danger:disabled {
           transform: translateY(-1px);
           box-shadow: 0 2px 8px rgba(39, 154, 217, 0.3);
         }
+        /* 通常の disabled（pre-send: メアド未入力で送信ボタンが disabled な状態） */
         #errorReportResetBtn:disabled,
         #errorReportCancelBtn:disabled,
         #errorReportSendBtn:disabled {
-          opacity: 0.35 !important;
-          /* pointer-events: none で完全にクリック・hover・cursor 反応を止める。
-             送信中は親の modal.style.cursor='wait' を継承するので、
-             「枠外をクリックしているのと同じ無反応感」になる。 */
+          opacity: 0.4 !important;
+          cursor: not-allowed !important;
           pointer-events: none !important;
           transform: none !important;
           box-shadow: none !important;
+        }
+
+        /* 送信中（modal に is-submitting クラスが付く）: 全ボタン完全に無反応 + wait カーソル。
+           :hover も同じスタイルで明示的に上書き → ホバーで「押せる感じ」が出ないように。 */
+        #errorReportModal.is-submitting button,
+        #errorReportModal.is-submitting button:hover,
+        #errorReportModal.is-submitting button:focus {
+          opacity: 0.3 !important;
+          pointer-events: none !important;
+          cursor: wait !important;
+          background: transparent !important;
+          border-color: var(--border) !important;
+          color: var(--text-secondary) !important;
+          transform: none !important;
+          box-shadow: none !important;
+          filter: grayscale(40%);
         }
         /* index2.html の素 button 規則（box-shadow / border-radius / background-gradient）が
            モーダル内のキャンセル / リセット / 送信ボタンに漂着するのを ID で打ち消す。
@@ -2707,6 +2722,9 @@ window.addEventListener("unhandledrejection", (e) => {
         "送信してよろしいですか？";
     if (!confirm(consentMsg)) return;
 
+    // CSS 主導の無反応化: is-submitting クラスでボタン全部に
+    // pointer-events:none / cursor:wait / 灰色化 が一括適用される。
+    modal.classList.add("is-submitting");
     setSendEnabled(false);
     cancelBtn.disabled = true;
     resetBtn.disabled = true;
@@ -2730,6 +2748,7 @@ window.addEventListener("unhandledrejection", (e) => {
       const data = await res.json();
 
       // 送信終了 → 視覚フィードバック復元 + フラグ OFF
+      modal.classList.remove("is-submitting");
       modal.style.background = "rgba(2,6,23,0.65)";
       modal.style.cursor = "";
       window.__clipgiftSetSubmitting(false);
@@ -2756,6 +2775,7 @@ window.addEventListener("unhandledrejection", (e) => {
         sendBtn.textContent = "送信する";
       }
     } catch (err) {
+      modal.classList.remove("is-submitting");
       modal.style.background = "rgba(2,6,23,0.65)";
       modal.style.cursor = "";
       window.__clipgiftSetSubmitting(false);

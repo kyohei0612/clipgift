@@ -290,10 +290,15 @@ def fetch_twitch_chat(video_id: str, progress_path: Optional[str] = None) -> lis
     seen_keys: set = set()
     offset = 0
     batch_count = 0
+    consecutive_empty_pages = 0
 
     # 配信終端では Twitch 側が一時エラー（service error / timeout）を返す
     # 3 回連続で発生したら「配信終了」とみなして取得完了
     END_CHECK_ATTEMPTS = 3
+    # new_count == 0（同秒大量コメント / 一時的に空ページ）が
+    # この回数連続したら本当に終端とみなす。
+    # 単発の 0 だと「offset 秒に大量コメント → 全 seen」のケースで誤って打ち切る。
+    EMPTY_PAGES_BEFORE_END = 30
 
     while True:
         variables = {"videoID": video_id, "contentOffsetSeconds": offset}
@@ -372,18 +377,30 @@ def fetch_twitch_chat(video_id: str, progress_path: Optional[str] = None) -> lis
                     "phase": "チャットダウンロード",
                 })
 
-        page_info = comments_data.get("pageInfo") or {}
-        # 終了条件: 次ページなし or 新規取得 0 or offset 進まない
-        if not page_info.get("hasNextPage"):
-            break
+        # 注: Twitch GraphQL の pageInfo.hasNextPage は cursor ベースの
+        # ページネーションを前提にした値を返すことがあり、本実装の
+        # contentOffsetSeconds ベース取得では false でも実際は続きがある。
+        # そのため hasNextPage は終了判定に使わず、
+        # 「connsecutive_empty_pages 回連続で新規ゼロ」だけで判定する。
         if new_count == 0:
-            # 全部 seen で重複 → 進めなくなったので終了
-            break
-        if last_sec <= offset:
-            # offset が進まない（同じ秒のコメント大量） → 強制的に 1 秒進める
+            # 全部 seen → offset 秒に大量コメントが集中して同じ秒を再取得してるケース。
+            # 次秒に進めて続行。連続で空が続いた時のみ「本当に終端」と判定。
+            consecutive_empty_pages += 1
+            if consecutive_empty_pages >= EMPTY_PAGES_BEFORE_END:
+                print(
+                    f"[INFO] {EMPTY_PAGES_BEFORE_END} 連続で新規ゼロ → 取得完了 "
+                    f"(累計 {len(all_comments)} 件)",
+                    flush=True,
+                )
+                break
             offset += 1
         else:
-            offset = last_sec
+            consecutive_empty_pages = 0
+            if last_sec <= offset:
+                # offset が進まない（同じ秒のコメント大量） → 強制的に 1 秒進める
+                offset += 1
+            else:
+                offset = last_sec
         time.sleep(CHAT_BATCH_SLEEP_SEC)
 
     print(f"[INFO] Twitch チャット取得完了: {len(all_comments)} 件", flush=True)
