@@ -1,5 +1,5 @@
 #define MyAppName "ClipGift"
-#define MyAppVersion "1.0.98"
+#define MyAppVersion "1.0.99"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
@@ -92,9 +92,12 @@ Source: "{#SourceDir}\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\scripts\refresh_icon_cache.bat"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 [Icons]
+; PrivilegesRequired=lowest と整合させるため、ユーザー側のデスクトップ /
+; スタートメニューに作成する（{commondesktop} だと全ユーザー共通 = 管理者権限必須で
+; IPersistFile::Save 0x80070005 を起こす）
 Name: "{group}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\ClipGiftLog.ico"
 Name: "{group}\アンインストール"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\ClipGiftLog.ico"
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\ClipGiftLog.ico"
 
 [Run]
 ; Python 3.10をサイレントインストール（すでに入っていてもOK）
