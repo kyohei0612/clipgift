@@ -5,12 +5,19 @@ Windows のシステム/ユーザーフォントフォルダを探索し、
 """
 
 import os
+import time
 import json
 import logging
 
 from paths import LAST_FONT_FILE
 
 logger = logging.getLogger(__name__)
+
+# list_fonts() のキャッシュ。fontTools パースは重いため。
+# フォントモーダルの遅延ロード（/font-preview）でも参照される
+_FONTS_CACHE = None
+_FONTS_CACHE_TIME = 0.0
+_FONTS_CACHE_TTL = 300  # 秒。フォント追加・削除は再起動 or TTL 経過で反映
 
 
 def get_font_dirs():
@@ -66,7 +73,12 @@ def get_font_japanese_name(path):
 
 
 def list_fonts():
-    """日本語名を持つフォントのみ返す"""
+    """日本語名を持つフォントのみ返す。fontTools パースが重いため 5 分キャッシュ。"""
+    global _FONTS_CACHE, _FONTS_CACHE_TIME
+    now = time.time()
+    if _FONTS_CACHE is not None and (now - _FONTS_CACHE_TIME) < _FONTS_CACHE_TTL:
+        return _FONTS_CACHE
+
     fonts = []
     for d in get_font_dirs():
         if not os.path.isdir(d):
@@ -88,6 +100,8 @@ def list_fonts():
             unique.append(f)
     # 表示名でソート
     unique.sort(key=lambda x: x["display_name"].lower())
+    _FONTS_CACHE = unique
+    _FONTS_CACHE_TIME = now
     return unique
 
 
@@ -97,6 +111,28 @@ def load_last_font():
             return json.load(f).get("font_name", "")
     except Exception:
         return ""
+
+
+# PC ごとにインストール済みフォントが違うので、未設定時のデフォルトを統一する。
+# 優先順: メイリオ（Vista 以降必ずある定番）→ 游ゴシック（Win 8.1+）→ MS ゴシック（最古フォールバック）
+_PREFERRED_DEFAULT_FONTS = [
+    "meiryo.ttc",
+    "YuGothM.ttc",
+    "YuGothR.ttc",
+    "msgothic.ttc",
+]
+
+
+def pick_default_font_name(fonts):
+    """インストール済みフォントから安定なデフォルトを選ぶ。
+    優先候補リストから最初に見つかったもの。どれも無ければアルファベット順の先頭。"""
+    if not fonts:
+        return ""
+    names = {f["name"] for f in fonts}
+    for cand in _PREFERRED_DEFAULT_FONTS:
+        if cand in names:
+            return cand
+    return fonts[0]["name"]
 
 
 def save_last_font(font_name):

@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import shutil
@@ -18,7 +19,7 @@ import auto_update
 # 分離済みモジュール
 from paths import BASE_DIR, BIN_DIR
 from chat_analyzer import analyze_chat
-from font_manager import list_fonts, load_last_font, save_last_font
+from font_manager import list_fonts, load_last_font, save_last_font, pick_default_font_name
 from system_utils import (
     get_python_exe,
     get_ffmpeg_path,
@@ -305,7 +306,32 @@ def page2():
 def get_fonts():
     fonts = list_fonts()
     last = load_last_font()
+    # 別 PC で「保存済みフォントが入っていない」「未設定」ケースは
+    # 優先候補（メイリオ → 游ゴシック → MS ゴシック）でフォールバック。
+    if not last or not any(f["name"] == last for f in fonts):
+        last = pick_default_font_name(fonts)
     return jsonify({"fonts": fonts, "last_font": last})
+
+
+@app.route("/font-preview/<path:font_name>", methods=["GET"])
+def font_preview_route(font_name):
+    """フォント選択モーダル用：実フォントファイルを @font-face プレビュー用に配信。
+    パストラバーサル防止のため list_fonts() の結果（システム/ユーザーフォントフォルダ）
+    でホワイトリスト照合し、一致した path のみ返す。"""
+    matching = next((f for f in list_fonts() if f["name"] == font_name), None)
+    if not matching:
+        return ("Not found", 404)
+    lower = font_name.lower()
+    if lower.endswith(".ttf"):
+        mime = "font/ttf"
+    elif lower.endswith(".otf"):
+        mime = "font/otf"
+    elif lower.endswith(".ttc"):
+        mime = "font/collection"
+    else:
+        mime = "application/octet-stream"
+    # max_age=3600: プレビュー用なのでキャッシュ可
+    return send_file(matching["path"], mimetype=mime, max_age=3600)
 
 
 @app.route("/analyze_chat_csv", methods=["POST"])
@@ -470,6 +496,16 @@ def download_yt_video_chat():
     if not video_url:
         return jsonify({"success": False, "message": "URLが指定されていません"}), 400
 
+    # 画質指定（page1 の <select id="resolutionSelect"> 由来）。
+    # 許可値以外は 1080（既定）にフォールバック。9999 は「自動＝最高画質」のセンチネル。
+    _ALLOWED_RES = (360, 480, 720, 1080, 9999)
+    try:
+        max_resolution = int(data.get("resolution", 1080))
+    except (TypeError, ValueError):
+        max_resolution = 1080
+    if max_resolution not in _ALLOWED_RES:
+        max_resolution = 1080
+
     # 出力先
     downloads_dir = str(Path.home() / "Downloads")
     os.makedirs(downloads_dir, exist_ok=True)
@@ -514,6 +550,7 @@ def download_yt_video_chat():
                     video_url,
                     downloads_dir,
                     dl_progress_path,
+                    str(max_resolution),
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -740,6 +777,25 @@ def process_clips():
         else:
             font_path = ""
 
+        # コメント流し ON/OFF（フォント設定モーダルのトグル）。
+        # "true" 以外は false 扱いにして mp4inchatnagasi.py 側に渡す。
+        _overlay_raw = request.form.get("comment_overlay_enabled", "true").strip().lower()
+        comment_overlay_enabled = "true" if _overlay_raw in ("true", "1", "on", "yes") else "false"
+
+        # コメント色（#RRGGBB / 任意。フォーマット不正なら white にフォールバック）
+        _color_raw = (request.form.get("comment_color", "") or "").strip()
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", _color_raw):
+            comment_color = _color_raw
+        else:
+            comment_color = "#FFFFFF"
+
+        # コメントフォントサイズ（20-100 整数。範囲外/不正は 50）
+        try:
+            _size_int = int(request.form.get("comment_fontsize", "50"))
+        except (TypeError, ValueError):
+            _size_int = 50
+        comment_fontsize = str(max(20, min(100, _size_int)))
+
         downloads_dir = str(Path.home() / "Downloads")
         os.makedirs(downloads_dir, exist_ok=True)
 
@@ -851,6 +907,12 @@ def process_clips():
                             clip_title,
                             "--font",
                             font_path,
+                            "--comment-overlay",
+                            comment_overlay_enabled,
+                            "--comment-color",
+                            comment_color,
+                            "--comment-fontsize",
+                            comment_fontsize,
                         ],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,

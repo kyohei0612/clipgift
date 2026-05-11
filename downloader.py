@@ -624,7 +624,7 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
         raise Exception(f"ffmpeg結合エラー: {result.stderr.decode('utf-8', errors='replace')}")
 
 
-def download_video_and_chat(url, base_output_folder, progress_path):
+def download_video_and_chat(url, base_output_folder, progress_path, max_resolution=1080):
     output_folder = os.path.abspath(base_output_folder)
     os.makedirs(output_folder, exist_ok=True)
 
@@ -632,7 +632,7 @@ def download_video_and_chat(url, base_output_folder, progress_path):
 
     # pytubefixでダウンロード（動画0〜30%、音声30〜45%）
     title_folder, safe_title = download_with_pytubefix(
-        url, output_folder, max_resolution=1080, progress_path=progress_path
+        url, output_folder, max_resolution=max_resolution, progress_path=progress_path
     )
 
     safe_write_json(
@@ -740,15 +740,20 @@ def download_video_and_chat(url, base_output_folder, progress_path):
 
 
 def main():
-    if len(sys.argv) != 4:
+    # 4 番目の max_resolution は省略可（後方互換）。指定がなければ 1080。
+    if len(sys.argv) not in (4, 5):
         print(
-            "Usage: python downloader.py <YouTube_or_Twitch_URL> <output_folder> <progress_path>"
+            "Usage: python downloader.py <YouTube_or_Twitch_URL> <output_folder> <progress_path> [max_resolution]"
         )
         sys.exit(1)
 
     video_url = sys.argv[1]
     base_output_folder = sys.argv[2]
     progress_path = sys.argv[3]
+    try:
+        max_resolution = int(sys.argv[4]) if len(sys.argv) >= 5 else 1080
+    except (TypeError, ValueError):
+        max_resolution = 1080
 
     os.makedirs(base_output_folder, exist_ok=True)
 
@@ -767,7 +772,11 @@ def main():
                 print(f"[WARN] YouTube / Twitch のどちらにも該当しない URL: {video_url}", flush=True)
                 print(f"[WARN] YouTube ロジックで処理を試みますが、失敗する可能性があります", flush=True)
             print(f"[INFO] YouTube URL として処理: {video_url}", flush=True)
-            download_video_and_chat(video_url, base_output_folder, progress_path)
+            print(f"[INFO] 画質指定: max_resolution={max_resolution}p", flush=True)
+            download_video_and_chat(
+                video_url, base_output_folder, progress_path,
+                max_resolution=max_resolution,
+            )
     except ChatNotAvailableError as e:
         # チャット取得不可（ライブ配信中・リプレイ無効・限定公開など）→ exit code 2 で終了
         # フロントは progress.json の message をそのままユーザーに表示する

@@ -113,7 +113,7 @@ def can_render_text(text, font_path, fontsize=DEFAULT_FONTSIZE):
         return True
 
 
-def create_text_image(text, font_path=None, fontsize=DEFAULT_FONTSIZE):
+def create_text_image(text, font_path=None, fontsize=DEFAULT_FONTSIZE, color="white"):
     if font_path is None:
         found = find_font("keifont.ttf")
         if found:
@@ -150,7 +150,7 @@ def create_text_image(text, font_path=None, fontsize=DEFAULT_FONTSIZE):
         (x, y),
         text,
         font=font,
-        fill="white",
+        fill=color,
         stroke_width=sw,
         stroke_fill="black",
     )
@@ -371,6 +371,9 @@ def gen_clip(
     clip_idx=1,
     clip_title="",
     font_path=None,
+    comment_overlay_enabled=True,
+    comment_color="white",
+    comment_fontsize=DEFAULT_FONTSIZE,
 ):
     """
     PILで各コメントをPNG画像に書き出し、ffmpegのoverlayフィルタで合成する高速実装。
@@ -388,8 +391,13 @@ def gen_clip(
     print(f"📐 動画サイズ: {w}x{h}, fps={fps:.2f}, 総フレーム数={total_frames}", flush=True)
 
     # コメントフィルタ・上限250件
-    queue = [c for c in comments if start <= c["time"] <= end]
-    queue.sort(key=lambda c: c["time"])
+    if not comment_overlay_enabled:
+        # コメント流し OFF: overlay 一切作らず、既存「コメントなし → そのままコピー」パスに合流
+        queue = []
+        print("▶ コメント流し OFF（オーバーレイ生成スキップ）", flush=True)
+    else:
+        queue = [c for c in comments if start <= c["time"] <= end]
+        queue.sort(key=lambda c: c["time"])
 
     total_count = len(queue)
     print(f"▶ コメント数: {total_count}件", flush=True)
@@ -412,7 +420,12 @@ def gen_clip(
                 print(f"⚠️ スキップ（描画不可）: {c['text'][:20]}", flush=True)
                 continue
 
-            img_arr, tw, th = create_text_image(c["text"], font_path=font_path)
+            img_arr, tw, th = create_text_image(
+                c["text"],
+                font_path=font_path,
+                fontsize=comment_fontsize,
+                color=comment_color,
+            )
 
             min_y = VIDEO_EDGE_PADDING_PX
             max_y = h - th - VIDEO_EDGE_PADDING_PX
@@ -584,6 +597,9 @@ def main():
     parser.add_argument("--clip-idx", type=int, default=1)  # クリップ番号
     parser.add_argument("--clip-title", default="")  # クリップタイトル
     parser.add_argument("--font", default="")          # フォントパス
+    parser.add_argument("--comment-overlay", dest="comment_overlay", default="true")  # コメント流し ON/OFF（"true"/"false"）
+    parser.add_argument("--comment-color", dest="comment_color", default="#FFFFFF")   # コメント色 #RRGGBB
+    parser.add_argument("--comment-fontsize", dest="comment_fontsize", type=int, default=DEFAULT_FONTSIZE)  # コメントフォントサイズ px
     parser.add_argument("--is-last", default="False")
     args = parser.parse_args()
 
@@ -657,6 +673,9 @@ def main():
                     clip_idx=clip_idx,
                     clip_title=display_title,
                     font_path=args.font if args.font else None,
+                    comment_overlay_enabled=(args.comment_overlay.strip().lower() == "true"),
+                    comment_color=args.comment_color,
+                    comment_fontsize=args.comment_fontsize,
                 )
                 # 多層防御: gen_clip が成功と返しても、実際にファイルが生成されたか念押しで確認する
                 if not os.path.exists(out_file):

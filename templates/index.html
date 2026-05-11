@@ -306,6 +306,43 @@
         align-items: stretch;
       }
 
+      /* ── 画質選択 ── */
+      .resolution-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 12px;
+        flex-wrap: wrap;
+      }
+      .resolution-row label {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        letter-spacing: 0.04em;
+      }
+      .resolution-select {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-sm);
+        color: var(--text);
+        font-family: var(--sans);
+        font-size: 12px;
+        padding: 8px 12px;
+        cursor: pointer;
+        min-width: 180px;
+        transition: var(--transition);
+      }
+      .resolution-select:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+      .resolution-hint {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+
       .url-input {
         flex: 1;
         background: var(--surface2);
@@ -827,6 +864,18 @@
           <span id="download-timer"></span>
         </div>
 
+        <div class="resolution-row">
+          <label for="resolutionSelect">画質</label>
+          <select id="resolutionSelect" class="resolution-select" aria-label="ダウンロード画質">
+            <option value="9999">自動（最高画質）</option>
+            <option value="1080" selected>1080p（フル HD）</option>
+            <option value="720">720p（HD）</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+          </select>
+          <span class="resolution-hint">高画質ほど時間とディスク容量を使います</span>
+        </div>
+
         <p id="download-result"></p>
 
         <div class="progress-wrap" id="progress-bar-wrap">
@@ -871,7 +920,22 @@
       const downloadBtn = document.getElementById("downloadBtn");
       const downloadResult = document.getElementById("download-result");
       const downloadTimer = document.getElementById("download-timer");
+      const resolutionSelect = document.getElementById("resolutionSelect");
       let downloadCountdown;
+
+      // 画質選択を localStorage で永続化（次回起動時の手間軽減）
+      const RES_KEY = "clipgift.downloadResolution.v1";
+      (function restoreResolution() {
+        try {
+          const saved = localStorage.getItem(RES_KEY);
+          if (saved && [...resolutionSelect.options].some((o) => o.value === saved)) {
+            resolutionSelect.value = saved;
+          }
+        } catch (_) {}
+      })();
+      resolutionSelect.addEventListener("change", () => {
+        try { localStorage.setItem(RES_KEY, resolutionSelect.value); } catch (_) {}
+      });
 
       downloadBtn.addEventListener("click", () => {
         const url = videoUrlInput.value.trim();
@@ -879,13 +943,14 @@
           showStatus("error", "YouTubeのURLを入力してください");
           return;
         }
+        const resolution = parseInt(resolutionSelect.value, 10);
         showStatus("", "");
         downloadBtn.disabled = true;
         startDownloadCountdown(30);
         fetch("/download-yt-video-chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoUrl: url }),
+          body: JSON.stringify({ videoUrl: url, resolution: resolution }),
         })
           .then(res => res.json())
           .then(data => {
