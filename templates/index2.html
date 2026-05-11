@@ -554,6 +554,33 @@ body.light-mode #waveform-container { background: var(--slate-100); }
   overflow: hidden;
   border: 1px solid var(--border);
 }
+
+/* バー上部: ラベル + 「前後 10 分まで広げる」チェックボックス */
+.sliderHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.bufferToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition), color var(--transition);
+}
+.bufferToggle:hover { background: var(--surface-2); color: var(--text-primary); }
+.bufferToggle input[type="checkbox"] {
+  accent-color: var(--brand-500);
+  cursor: pointer;
+  margin: 0;
+}
 #rangeSliderTrack { position: absolute; top: 50%; left: 0; height: 4px; background: var(--accent); transform: translateY(-50%); z-index: 0; border-radius: 999px; }
 #rangeSliderRange { position: absolute; top: 50%; height: 4px; background: var(--accent); transform: translateY(-50%); border-radius: 999px; z-index: 1; }
 #startHandle, #endHandle {
@@ -2118,9 +2145,15 @@ button.btn-danger:disabled {
           <div id="waveform-container"></div>
 
           <div class="sliderContainer">
-            <label class="sliderLabel"
-              >クリップ範囲調整（開始・終了をドラッグ）</label
-            >
+            <div class="sliderHeader">
+              <label class="sliderLabel"
+                >クリップ範囲調整（開始・終了をドラッグ）</label
+              >
+              <label class="bufferToggle" title="ON にすると前後 10 分までドラッグできます（細かい調整は荒くなります）">
+                <input type="checkbox" id="bufferExtendToggle">
+                <span>前後 10 分まで広げる</span>
+              </label>
+            </div>
             <div id="rangeSliderContainer" role="slider">
               <div id="rangeSliderTrack"></div>
               <div id="rangeSliderRange"></div>
@@ -4899,10 +4932,18 @@ async function openModal(id, event) {
     videoPlayer.onloadedmetadata = null;
 
     maxSec = Math.floor(videoPlayer.duration);
-    // ★ バー操作範囲をクリップ前後 1 分に。
-    // 旧 600 秒（前後 10 分）だとバー幅 1000px に対し 1px ≒ 1.2 秒で「ちょっと動かしただけで数秒〜数十秒飛ぶ」感覚になる。
-    // 60 秒なら 1px ≒ 0.12 秒、マウス 1cm（約 38px）≒ 4.5 秒の体感で細かく操作可能。
-    const bufferSec = 60;
+    // バー操作範囲を動的に変更:
+    //   - 既定: 60 秒（前後 1 分）→ 1px ≒ 0.12 秒で細かい調整。
+    //   - 「前後 10 分まで広げる」チェック ON: 600 秒（前後 10 分）→ 1px ≒ 1.2 秒、荒いが広い。
+    // チェック状態は localStorage で永続化。
+    const BUFFER_KEY = "clipgift.modalBufferExtended.v1";
+    const _bufferToggle = document.getElementById("bufferExtendToggle");
+    if (_bufferToggle) {
+      try {
+        _bufferToggle.checked = localStorage.getItem(BUFFER_KEY) === "1";
+      } catch (_) {}
+    }
+    const bufferSec = (_bufferToggle && _bufferToggle.checked) ? 600 : 60;
 
     const playStartSec = Math.max(clip.startSec - bufferSec, 0);
     let playEndSec = Math.min(clip.endSec + bufferSec, maxSec);
@@ -4919,6 +4960,25 @@ async function openModal(id, event) {
 
     updateSliderUI();
     updateClipDurationDisplay();
+
+    // 「前後 10 分まで広げる」チェックの即時反映ハンドラ。
+    // 一度だけバインドし（重複防止）、ON / OFF でスライダー範囲を再計算 + UI 更新。
+    if (_bufferToggle && !_bufferToggle.__bufferBound) {
+      _bufferToggle.addEventListener("change", () => {
+        try { localStorage.setItem(BUFFER_KEY, _bufferToggle.checked ? "1" : "0"); } catch (_) {}
+        const newBuffer = _bufferToggle.checked ? 600 : 60;
+        const newPlayStart = Math.max(clipStartSec - newBuffer, 0);
+        const newPlayEnd = Math.min(clipEndSec + newBuffer, maxSec);
+        sliderMin = newPlayStart;
+        sliderMax = newPlayEnd;
+        // クリップ位置は維持（範囲縮小時は端に寄せる）
+        clipStartSec = Math.max(sliderMin, Math.min(clipStartSec, sliderMax - 1));
+        clipEndSec = Math.max(sliderMin + 1, Math.min(clipEndSec, sliderMax));
+        updateSliderUI();
+        updateClipDurationDisplay();
+      });
+      _bufferToggle.__bufferBound = true;
+    }
 
     videoPlayer.currentTime = clipStartSec;
 
