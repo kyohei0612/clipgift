@@ -95,20 +95,13 @@ export async function handleSupportReport(
     );
   }
 
-  // 添付ファイル検証（最大 3 枚 / 各 5MB / image/* のみ）
+  // 添付ファイル検証（任意 / 最大 3 枚 / 各 5MB / image/* のみ）
+  // 2026-05-11: エラー報告でも添付なしを許可（メアド必須化と引き換え）
   const attachments = Array.isArray(body.attachments) ? body.attachments : [];
   if (attachments.length > 3) {
     return errorResponse(
       "invalid_request",
       "添付ファイルは最大 3 枚までです",
-      400
-    );
-  }
-  // エラー報告は画像必須、ご要望は任意
-  if (reportType === "error" && attachments.length === 0) {
-    return errorResponse(
-      "invalid_request",
-      "エラー報告にはスクリーンショット添付が必要です（最低 1 枚）",
       400
     );
   }

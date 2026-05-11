@@ -1738,8 +1738,11 @@ button.btn-danger:disabled {
         #errorReportResetBtn:disabled,
         #errorReportCancelBtn:disabled,
         #errorReportSendBtn:disabled {
-          opacity: 0.4 !important;
-          cursor: not-allowed !important;
+          opacity: 0.35 !important;
+          /* pointer-events: none で完全にクリック・hover・cursor 反応を止める。
+             送信中は親の modal.style.cursor='wait' を継承するので、
+             「枠外をクリックしているのと同じ無反応感」になる。 */
+          pointer-events: none !important;
           transform: none !important;
           box-shadow: none !important;
         }
@@ -2463,7 +2466,6 @@ window.addEventListener("unhandledrejection", (e) => {
   const emailInput = document.getElementById("errorReportEmail");
   const commentInput = document.getElementById("errorReportComment");
   const filesInput = document.getElementById("errorReportFiles");
-  const filesRequiredLabel = document.getElementById("errorReportFilesRequired");
   const previewBox = document.getElementById("errorReportPreview");
   const dropzone = document.getElementById("errorReportFilesDropzone");
   const dropzoneLabel = document.getElementById("errorReportFilesDropzoneLabel");
@@ -2538,7 +2540,7 @@ window.addEventListener("unhandledrejection", (e) => {
         window.__clipgiftLastError +
         "\n\n【発生状況・追加情報（任意）】\n";
     }
-    updateRequiredHint();  // 既定: error → 必須・disabled
+    updateRequiredHint();  // 送信ボタン: メール未入力なので最初は disabled
   }
 
   function readFileAsBase64(file) {
@@ -2559,16 +2561,18 @@ window.addEventListener("unhandledrejection", (e) => {
     previewBox.innerHTML = "";
     attachmentsCache = [];
 
+    // スクショは任意なので添付の有無/妥当性は送信可否に影響しない。
+    // 送信ボタン状態はメール形式バリデーションのみで判定（refreshSendButton）。
     if (files.length === 0) {
       updateDropzoneLabel();
-      setSendEnabled(false);
+      refreshSendButton();
       return;
     }
     if (files.length > MAX_FILES) {
       showFeedback("画像は最大 " + MAX_FILES + " 枚までです。", true);
       filesInput.value = "";
       updateDropzoneLabel();
-      setSendEnabled(false);
+      refreshSendButton();
       return;
     }
     for (const f of files) {
@@ -2576,14 +2580,14 @@ window.addEventListener("unhandledrejection", (e) => {
         showFeedback("画像ファイルのみ添付できます: " + f.name, true);
         filesInput.value = "";
         updateDropzoneLabel();
-        setSendEnabled(false);
+        refreshSendButton();
         return;
       }
       if (f.size > MAX_SIZE_BYTES) {
         showFeedback(f.name + " が 5MB を超えています。", true);
         filesInput.value = "";
         updateDropzoneLabel();
-        setSendEnabled(false);
+        refreshSendButton();
         return;
       }
     }
@@ -2603,7 +2607,7 @@ window.addEventListener("unhandledrejection", (e) => {
       previewBox.appendChild(img);
     }
     updateDropzoneLabel();
-    setSendEnabled(true);
+    refreshSendButton();
   }
 
   filesInput.addEventListener("change", (e) => {

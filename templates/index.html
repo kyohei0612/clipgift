@@ -720,7 +720,7 @@
             </label>
             <select id="errorReportType" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font-size:13px;">
               <option value="error">🔴 エラー報告（不具合・バグ）</option>
-              <option value="request">🟢 ご要望・お問い合わせ — スクリーンショット任意</option>
+              <option value="request">🟢 ご要望・お問い合わせ</option>
             </select>
           </div>
 
@@ -810,8 +810,11 @@
         #errorReportResetBtn:disabled,
         #errorReportCancelBtn:disabled,
         #errorReportSendBtn:disabled {
-          opacity: 0.4 !important;
-          cursor: not-allowed !important;
+          opacity: 0.35 !important;
+          /* pointer-events: none で完全にクリック・hover・cursor 反応を止める。
+             送信中は親の modal.style.cursor='wait' を継承する形になり、
+             「枠外をクリックしている時と同じ無反応感」になる。 */
+          pointer-events: none !important;
           transform: none !important;
           box-shadow: none !important;
         }
@@ -1345,7 +1348,6 @@
       const emailInput = document.getElementById("errorReportEmail");
       const commentInput = document.getElementById("errorReportComment");
       const filesInput = document.getElementById("errorReportFiles");
-      const filesRequiredLabel = document.getElementById("errorReportFilesRequired");
       const previewBox = document.getElementById("errorReportPreview");
       const dropzone = document.getElementById("errorReportFilesDropzone");
       const dropzoneLabel = document.getElementById("errorReportFilesDropzoneLabel");
@@ -1437,16 +1439,18 @@
         previewBox.innerHTML = "";
         attachmentsCache = [];
 
+        // スクショは任意なので、添付の有無 / 妥当性は送信可否に影響しない。
+        // 送信ボタンはメール形式が有効かどうかだけで判定する（updateRequiredHint）。
         if (files.length === 0) {
           updateDropzoneLabel();
-          setSendEnabled(false);
+          updateRequiredHint();
           return;
         }
         if (files.length > MAX_FILES) {
           showFeedback("画像は最大 " + MAX_FILES + " 枚までです。", true);
           filesInput.value = "";
           updateDropzoneLabel();
-          setSendEnabled(false);
+          updateRequiredHint();
           return;
         }
         for (const f of files) {
@@ -1454,14 +1458,14 @@
             showFeedback("画像ファイルのみ添付できます: " + f.name, true);
             filesInput.value = "";
             updateDropzoneLabel();
-            setSendEnabled(false);
+            updateRequiredHint();
             return;
           }
           if (f.size > MAX_SIZE_BYTES) {
             showFeedback(f.name + " が 5MB を超えています。", true);
             filesInput.value = "";
             updateDropzoneLabel();
-            setSendEnabled(false);
+            updateRequiredHint();
             return;
           }
         }
@@ -1482,7 +1486,7 @@
           previewBox.appendChild(img);
         }
         updateDropzoneLabel();
-        setSendEnabled(true);
+        updateRequiredHint();
       }
 
       filesInput.addEventListener("change", (e) => {

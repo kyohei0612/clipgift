@@ -1308,15 +1308,10 @@ def report_error_route():
         if report_type not in ("error", "request"):
             report_type = "error"
 
-        # 添付ファイル必須（type=error のみ）
+        # 添付ファイル: 任意（type=error / request どちらも 0 枚 OK）。
+        # 上限のみ強制（最大 3 枚 / 各 5MB / 画像のみ）。
         if not isinstance(attachments, list):
             return jsonify({"success": False, "message": "添付ファイル形式が不正です。"}), 400
-
-        if report_type == "error" and len(attachments) == 0:
-            return jsonify({
-                "success": False,
-                "message": "エラー報告にはスクリーンショットの添付が必要です（最低 1 枚、最大 3 枚）。",
-            }), 400
 
         if len(attachments) > 3:
             return jsonify({
