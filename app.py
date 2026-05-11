@@ -302,6 +302,21 @@ def page2():
 
 
 
+@app.route("/save-last-font", methods=["POST"])
+def save_last_font_route():
+    """フォント設定モーダルで「決定」した時点で即デフォルト保存。
+    これによりクリップ生成しなくても次回起動から選択フォントが既定になる。"""
+    data = request.get_json(silent=True) or {}
+    font_name = (data.get("font_name") or "").strip()
+    if not font_name:
+        return jsonify({"success": False, "message": "font_name が空です"}), 400
+    # ホワイトリスト照合: 実在するフォント名以外は受け付けない
+    if not any(f["name"] == font_name for f in list_fonts()):
+        return jsonify({"success": False, "message": "存在しないフォントです"}), 400
+    save_last_font(font_name)
+    return jsonify({"success": True, "last_font": font_name})
+
+
 @app.route("/get-fonts", methods=["GET"])
 def get_fonts():
     fonts = list_fonts()
@@ -506,7 +521,9 @@ def download_yt_video_chat():
     if max_resolution not in _ALLOWED_RES:
         max_resolution = 1080
 
-    # 出力先
+    # 出力先: 固定で ~/Downloads。
+    # Path.home() は USERPROFILE 環境変数から解決するので全 Windows で正しく動く。
+    # Downloads フォルダが存在しないレアケースは makedirs で自動作成。
     downloads_dir = str(Path.home() / "Downloads")
     os.makedirs(downloads_dir, exist_ok=True)
 

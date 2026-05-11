@@ -1608,22 +1608,6 @@ button.btn-danger:disabled {
               <input type="hidden" id="commentFontsize" name="comment_fontsize" value="50">
             </div>
           </div>
-          <div class="font-modal-controls font-modal-section">
-            <input
-              type="text"
-              id="fontSearchInput"
-              placeholder="🔍 フォント名で検索…"
-              aria-label="フォント検索"
-              autocomplete="off"
-            >
-            <input
-              type="text"
-              id="fontSampleInput"
-              placeholder="サンプルテキスト（例: あいうえお Welcome 12345）"
-              aria-label="プレビュー用サンプルテキスト"
-              autocomplete="off"
-            >
-          </div>
           <div class="font-modal-list-wrapper">
             <ul
               id="fontModalList"
@@ -1638,7 +1622,7 @@ button.btn-danger:disabled {
           </div>
           <footer class="font-modal-footer">
             <span class="font-modal-hint">
-              ⭐ クリックでお気に入り / ↑↓ で移動 / Enter で決定 / Esc で閉じる
+              ⭐ お気に入り / ↑↓ で移動 / Enter で決定 / Esc で閉じる
             </span>
             <div class="font-modal-actions">
               <button type="button" id="fontModalCancelBtn">キャンセル</button>
@@ -1663,23 +1647,24 @@ button.btn-danger:disabled {
               種別 <span style="color:var(--error);font-weight:700;">必須</span>
             </label>
             <select id="errorReportType" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font-size:13px;">
-              <option value="error">🔴 エラー報告（不具合・バグ）— スクリーンショット必須</option>
-              <option value="request">🟢 ご要望・お問い合わせ — スクリーンショット任意</option>
+              <option value="error">🔴 エラー報告（不具合・バグ）</option>
+              <option value="request">🟢 ご要望・お問い合わせ</option>
             </select>
           </div>
 
           <div style="margin-top:20px;">
             <label for="errorReportEmail" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">
-              返信先メールアドレス（任意）
+              返信先メールアドレス <span style="color:var(--error);font-weight:700;">必須</span>
             </label>
             <input
               id="errorReportEmail"
               type="email"
-              placeholder="例: you@example.com（修正版が出たら通知が欲しい場合のみ）"
+              required
+              placeholder="例: you@example.com"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font-size:13px;"
             />
             <p style="font-size:11px;color:var(--text-secondary);margin:6px 0 0 0;">
-              空欄でも送信できます。修正版がリリースされたタイミングで自動更新されます。
+              対応結果を返信するため必須です。修正版リリース時にも自動通知されます。
             </p>
           </div>
 
@@ -1697,7 +1682,7 @@ button.btn-danger:disabled {
 
           <div style="margin-top:18px;">
             <label for="errorReportFiles" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">
-              スクリーンショット <span id="errorReportFilesRequired" style="color:var(--error);font-weight:700;">必須</span>（最大 3 枚 / 各 5MB / 画像のみ）
+              スクリーンショット <span style="color:var(--text-secondary);font-weight:500;">（任意 / 最大 3 枚 / 各 5MB / 画像のみ）</span>
             </label>
             <input
               id="errorReportFiles"
@@ -2493,21 +2478,19 @@ window.addEventListener("unhandledrejection", (e) => {
   function isErrorType() {
     return (typeSelect && typeSelect.value === "request") ? false : true;
   }
+  function isValidEmail(s) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((s || "").trim());
+  }
+  // 送信ボタン活性条件: メールアドレスが必須（形式 OK）。
+  // スクリーンショットは任意なので関与しない。
   function updateRequiredHint() {
-    if (filesRequiredLabel) {
-      filesRequiredLabel.textContent = isErrorType() ? "必須" : "任意";
-      filesRequiredLabel.style.color = isErrorType() ? "var(--error)" : "var(--text-secondary)";
-    }
     refreshSendButton();
   }
   function refreshSendButton() {
-    if (isErrorType()) {
-      setSendEnabled(attachmentsCache.length > 0);
-    } else {
-      setSendEnabled(true); // 要望は画像なしでも送れる
-    }
+    setSendEnabled(isValidEmail(emailInput.value));
   }
   if (typeSelect) typeSelect.addEventListener("change", updateRequiredHint);
+  if (emailInput) emailInput.addEventListener("input", refreshSendButton);
 
   function showFeedback(message, isError) {
     feedback.style.display = "block";
@@ -2693,26 +2676,30 @@ window.addEventListener("unhandledrejection", (e) => {
     const email = (emailInput.value || "").trim();
     const comment = (commentInput.value || "").trim();
 
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      showFeedback("メールアドレスの形式をご確認ください。", true);
+    if (!email) {
+      showFeedback("返信先メールアドレスを入力してください。", true);
       return;
     }
-    if (isErrorType() && attachmentsCache.length === 0) {
-      showFeedback("エラー報告にはスクリーンショットを 1 枚以上添付してください。", true);
+    if (!isValidEmail(email)) {
+      showFeedback("メールアドレスの形式をご確認ください。", true);
       return;
     }
 
     // 送信前の明示的同意確認（プライバシー配慮）
+    const attachPart = attachmentsCache.length > 0
+      ? `・添付スクリーンショット ${attachmentsCache.length} 枚\n`
+      : "";
     const consentMsg = isErrorType()
       ? "以下の情報を ClipGift サポートチームに送信します：\n\n" +
         "・エラーログ（ユーザー名・パス・ライセンスキー等は自動マスク済）\n" +
-        "・添付スクリーンショット\n" +
+        attachPart +
         "・コメント欄に入力した内容\n" +
-        "・連絡用メールアドレス（記入時のみ）\n\n" +
+        "・返信先メールアドレス\n\n" +
         "送信してよろしいですか？"
       : "以下の内容を ClipGift サポートチームに送信します：\n\n" +
         "・コメント欄に入力したご要望\n" +
-        "・連絡用メールアドレス（記入時のみ）\n\n" +
+        attachPart +
+        "・返信先メールアドレス\n\n" +
         "送信してよろしいですか？";
     if (!confirm(consentMsg)) return;
 
@@ -3743,18 +3730,11 @@ const FontModal = (() => {
     const list = document.getElementById("fontModalList");
     const empty = document.getElementById("fontModalEmpty");
     if (!list || !empty) return;
-    const query = (document.getElementById("fontSearchInput").value || "").trim().toLowerCase();
     list.innerHTML = "";
 
-    let items = fontsList;
-    if (query) {
-      items = items.filter((f) => {
-        const dn = (f.display_name || "").toLowerCase();
-        return dn.includes(query) || f.name.toLowerCase().includes(query);
-      });
-    }
+    const items = fontsList;
 
-    if (!query && favorites.size > 0) {
+    if (favorites.size > 0) {
       const favs = items.filter((f) => favorites.has(f.name));
       const others = items.filter((f) => !favorites.has(f.name));
       if (favs.length > 0) {
@@ -3829,14 +3809,12 @@ const FontModal = (() => {
     modal.style.display = "flex";
     isOpen = true;
     pendingSelection = currentSelection;
-    const sampleInput = document.getElementById("fontSampleInput");
-    sampleText = (sampleInput && sampleInput.value) || DEFAULT_SAMPLE;
     setupObserver();
     renderList();
     PreviewCanvas.start();
     setTimeout(() => {
-      const search = document.getElementById("fontSearchInput");
-      if (search) search.focus();
+      const list = document.getElementById("fontModalList");
+      if (list) list.focus();
     }, 0);
 
     keyHandler = (ev) => {
@@ -3851,19 +3829,8 @@ const FontModal = (() => {
         ev.preventDefault();
         moveActive(-1);
       } else if (ev.key === "Enter") {
-        const ae = document.activeElement;
-        if (ae && (ae.id === "fontSearchInput" || ae.id === "fontSampleInput")) {
-          if (activeIndex < 0) {
-            ev.preventDefault();
-            moveActive(1);
-          } else {
-            ev.preventDefault();
-            confirm();
-          }
-        } else {
-          ev.preventDefault();
-          confirm();
-        }
+        ev.preventDefault();
+        confirm();
       }
     };
     document.addEventListener("keydown", keyHandler);
@@ -3909,9 +3876,24 @@ const FontModal = (() => {
       close();
       return;
     }
+    const isNewPick = pick !== currentSelection;
     currentSelection = pick;
     applySelectionToTrigger(pick);
     close();
+    // 「決定」した時点で次回起動からのデフォルトとして保存（その PC で）
+    // クリップ生成しなくても last_font.json が更新される
+    if (isNewPick) {
+      fetch("/save-last-font", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ font_name: pick }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && d.success) console.log("✅ デフォルトフォント保存: " + pick);
+        })
+        .catch((e) => console.warn("デフォルトフォント保存失敗:", e));
+    }
   }
 
   async function init() {
@@ -3934,8 +3916,6 @@ const FontModal = (() => {
     const closeBtn = document.getElementById("fontModalCloseBtn");
     const cancelBtn = document.getElementById("fontModalCancelBtn");
     const confirmBtn = document.getElementById("fontModalConfirmBtn");
-    const search = document.getElementById("fontSearchInput");
-    const sampleInput = document.getElementById("fontSampleInput");
     const overlayToggle = document.getElementById("commentOverlayToggle");
     const overlayHidden = document.getElementById("commentOverlayEnabled");
     const overlayState = document.getElementById("commentOverlayToggleState");
@@ -3945,18 +3925,6 @@ const FontModal = (() => {
     if (closeBtn) closeBtn.addEventListener("click", close);
     if (cancelBtn) cancelBtn.addEventListener("click", close);
     if (confirmBtn) confirmBtn.addEventListener("click", confirm);
-    if (search) search.addEventListener("input", () => renderList());
-    if (sampleInput) {
-      sampleInput.addEventListener("input", (e) => {
-        sampleText = e.target.value || DEFAULT_SAMPLE;
-        const list = document.getElementById("fontModalList");
-        if (list) {
-          list.querySelectorAll(".font-row-sample").forEach((s) => {
-            s.textContent = sampleText;
-          });
-        }
-      });
-    }
 
     // ON/OFF トグル：localStorage で状態を永続化
     const TOGGLE_KEY = "clipgift.commentOverlayEnabled.v1";

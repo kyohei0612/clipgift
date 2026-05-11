@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 import requests
@@ -17,6 +18,46 @@ from support_center import state_machine
 from support_center.config import SupportConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_section(text: str, header: str, max_len: int = 400) -> str:
+    """`## {header}` セクションの本文を抽出。次の `## ` か EOF まで。
+    Claude が CLAUDE.md の指示通り `## 原因` `## 修正サマリ` `## ユーザー返信案`
+    形式で repair_summary を書いた前提。見つからなければ空文字。"""
+    if not text:
+        return ""
+    pattern = re.compile(
+        r"^##\s+" + re.escape(header) + r"\s*\n(.+?)(?=^##\s|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    m = pattern.search(text)
+    if not m:
+        return ""
+    body = m.group(1).strip()
+    if len(body) > max_len:
+        body = body[:max_len].rstrip() + "..."
+    return body
+
+
+def _summarize_error_msg(original_body: str, max_len: int = 240) -> str:
+    """ユーザー報告本文からエラーの核心 1-3 行だけ抽出。
+    'エラー:' 'Error' 'Exception' を含む行を優先、なければ先頭から非空行を採用。"""
+    if not original_body:
+        return "（エラーメッセージなし）"
+    lines = [l.strip() for l in original_body.splitlines() if l.strip()]
+    key = [
+        l for l in lines
+        if l.startswith("エラー:")
+        or "Error" in l
+        or "Exception" in l
+        or "unavailable" in l.lower()
+        or "failed" in l.lower()
+    ]
+    picked = (key or lines)[:3]
+    msg = " / ".join(picked)
+    if len(msg) > max_len:
+        msg = msg[:max_len].rstrip() + "..."
+    return msg
 
 
 def notify_review_request(
@@ -32,32 +73,39 @@ def notify_review_request(
         logger.error("SUPPORT_ADMIN_TOKEN が未設定のため通知送信できません")
         return False
 
-    repair = incident.repair_summary or "（修正サマリなし）"
-    user_reply = incident.user_reply_draft or "（ユーザー返信案なし）"
+    repair_raw = incident.repair_summary or ""
     user_email = incident.user_email or "（なし、ユーザー送信スキップ）"
 
-    # Workers /support/notify は { error_hash, user_email, original_error_summary, repair_summary }
-    # を受け取る既存仕様。一通版では repair_summary に「修正案 + ユーザー返信案」をまとめて入れる。
+    # kyohei さん向けはシンプル 4 セクション:
+    #   エラーメッセージ → 原因 → 修正案要約 → 内容 OK?
+    # 詳細情報（生ログ・エラーコード等）は秘書（watch_support_idle.py）が
+    # 元の受信メールを保持しているのでそちらで参照可能。
+    error_msg = _summarize_error_msg(incident.original_body_excerpt, 240)
+    cause = _extract_section(repair_raw, "原因", 300) or "（解析中／未特定）"
+    fix = _extract_section(repair_raw, "修正サマリ", 300) or "（解析中／未特定）"
+
     combined_body = (
         "─────────────────────────\n"
-        "【修正サマリ】\n"
+        "【エラーメッセージ】\n"
         "─────────────────────────\n"
-        f"{repair}\n"
+        f"{error_msg}\n"
         "\n"
         "─────────────────────────\n"
-        "【ユーザーへの返信案】\n"
+        "【原因】\n"
         "─────────────────────────\n"
-        f"{user_reply}\n"
+        f"{cause}\n"
         "\n"
         "─────────────────────────\n"
-        "【次のアクション】\n"
+        "【修正案】\n"
         "─────────────────────────\n"
-        "このメールに「OK」と返信すると以下を実行します:\n"
-        "  1. build_and_push.bat（バージョン自動 +0.0.1 + git push）\n"
-        "  2. ユーザー返信メールを送信（上記の文面で）\n"
+        f"{fix}\n"
         "\n"
-        "返信文を変更したい場合は、変更後の文面を返信本文に含めてください。\n"
-        "（例:「OK ただし最後の挨拶文を 〜〜 に変えて」）\n"
+        "─────────────────────────\n"
+        "内容 OK？\n"
+        "─────────────────────────\n"
+        "このメールに「OK」と返信 → 自動で push + ユーザー返信送信。\n"
+        "返信案を直したい場合は OK の後ろに修正内容を続けて返信。\n"
+        "（例: OK ただし最後の挨拶を 〜〜 に変えて）\n"
         "\n"
         f"返信先ユーザー: {user_email}\n"
         f"error_hash:    {incident.error_hash}\n"
@@ -65,11 +113,11 @@ def notify_review_request(
 
     # 件名: 【ClipGift 確認依頼】<hash> - <元件名から短縮>
     short_subject = (incident.original_subject or "")[:80]
-    subject_for_workers = f"確認依頼"
     payload: dict[str, Any] = {
         "error_hash": f"{incident.error_hash} - {short_subject}",
         "user_email": user_email,
-        "original_error_summary": _short(incident.original_body_excerpt, 600),
+        # 【ユーザー報告（要約）】を Workers が prepend するので、ここは空相当で重複回避
+        "original_error_summary": "（詳細は本文【エラーメッセージ】参照）",
         "repair_summary": combined_body,
     }
 

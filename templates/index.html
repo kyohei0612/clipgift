@@ -502,7 +502,35 @@
       }
       .status-pill.success { background: rgba(16,185,129,.12); color: var(--success); border: 1px solid rgba(16,185,129,.28); }
       .status-pill.error   { background: rgba(239,68,68,.12);  color: var(--error);   border: 1px solid rgba(239,68,68,.28); }
+      .status-pill.info    { background: rgba(39,154,217,.12); color: var(--brand-500); border: 1px solid rgba(39,154,217,.28); }
       .status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor; }
+
+      /* エラー発生時にメッセージ横に並ぶ「このエラーを報告する」ボタン */
+      .report-now-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 8px;
+        margin-top: 14px;
+        padding: 5px 14px;
+        background: rgba(239, 68, 68, 0.10);
+        color: var(--error);
+        border: 1px solid rgba(239, 68, 68, 0.50);
+        border-radius: 999px;
+        font-family: var(--sans);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        vertical-align: middle;
+      }
+      .report-now-btn:hover {
+        background: var(--error);
+        color: #fff;
+        border-color: var(--error);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+      }
 
       /* ── ログ ── */
       .log-wrap { margin-top: 16px; display: none; }
@@ -691,23 +719,24 @@
               種別 <span style="color:var(--error);font-weight:700;">必須</span>
             </label>
             <select id="errorReportType" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font-size:13px;">
-              <option value="error">🔴 エラー報告（不具合・バグ）— スクリーンショット必須</option>
+              <option value="error">🔴 エラー報告（不具合・バグ）</option>
               <option value="request">🟢 ご要望・お問い合わせ — スクリーンショット任意</option>
             </select>
           </div>
 
           <div style="margin-top:20px;">
             <label for="errorReportEmail" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">
-              返信先メールアドレス（任意）
+              返信先メールアドレス <span style="color:var(--error);font-weight:700;">必須</span>
             </label>
             <input
               id="errorReportEmail"
               type="email"
-              placeholder="例: you@example.com（修正版が出たら通知が欲しい場合のみ）"
+              required
+              placeholder="例: you@example.com"
               style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);color:var(--text-primary);font-size:13px;"
             />
             <p style="font-size:11px;color:var(--text-secondary);margin:6px 0 0 0;">
-              空欄でも送信できます。修正版がリリースされたタイミングで自動更新されます。
+              対応結果を返信するため必須です。修正版リリース時にも自動通知されます。
             </p>
           </div>
 
@@ -725,7 +754,7 @@
 
           <div style="margin-top:18px;">
             <label for="errorReportFiles" style="display:block;font-size:13px;font-weight:600;margin-bottom:6px;">
-              スクリーンショット <span id="errorReportFilesRequired" style="color:var(--error);font-weight:700;">必須</span>（最大 3 枚 / 各 5MB / 画像のみ）
+              スクリーンショット <span style="color:var(--text-secondary);font-weight:500;">（任意 / 最大 3 枚 / 各 5MB / 画像のみ）</span>
             </label>
             <input
               id="errorReportFiles"
@@ -977,6 +1006,22 @@
         pill.className = "status-pill " + type;
         pill.textContent = msg;
         el.appendChild(pill);
+        // エラー時は「このエラーを報告する」ボタンを横に並べる
+        // → 既存の右上 「🛠 エラー報告」ボタンを programmatically click して同じモーダルを開く
+        if (type === "error") {
+          // DL/サーバーエラーをモーダルの auto-prefill 用に保存（JS Error と同じ仕組み）
+          window.__clipgiftLastError = `[DL Error] ${msg}`;
+
+          const reportBtn = document.createElement("button");
+          reportBtn.type = "button";
+          reportBtn.className = "report-now-btn";
+          reportBtn.textContent = "🛠 このエラーを報告する";
+          reportBtn.addEventListener("click", () => {
+            const openBtn = document.getElementById("errorReportBtn");
+            if (openBtn) openBtn.click();
+          });
+          el.appendChild(reportBtn);
+        }
       }
 
       const progressBarWrap = document.getElementById("progress-bar-wrap");
@@ -1314,18 +1359,16 @@
       function isErrorType() {
         return (typeSelect && typeSelect.value === "request") ? false : true;
       }
-      function updateRequiredHint() {
-        if (filesRequiredLabel) {
-          filesRequiredLabel.textContent = isErrorType() ? "必須" : "任意";
-          filesRequiredLabel.style.color = isErrorType() ? "var(--error)" : "var(--text-secondary)";
-        }
-        if (isErrorType()) {
-          setSendEnabled(attachmentsCache.length > 0);
-        } else {
-          setSendEnabled(true);
-        }
+      function isValidEmail(s) {
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((s || "").trim());
       }
-      if (typeSelect) typeSelect.addEventListener("change", updateRequiredHint); // [{filename, content_base64, content_type}]
+      // 送信ボタンの活性条件: メールアドレスが必須（形式 OK）。
+      // スクリーンショットは任意なので関与しない。
+      function updateRequiredHint() {
+        setSendEnabled(isValidEmail(emailInput.value));
+      }
+      if (typeSelect) typeSelect.addEventListener("change", updateRequiredHint);
+      if (emailInput) emailInput.addEventListener("input", updateRequiredHint);
 
       function showFeedback(message, isError) {
         feedback.style.display = "block";
@@ -1502,25 +1545,29 @@
       sendBtn.addEventListener("click", async () => {
         const email = (emailInput.value || "").trim();
         const comment = (commentInput.value || "").trim();
-        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        if (!email) {
+          showFeedback("返信先メールアドレスを入力してください。", true);
+          return;
+        }
+        if (!isValidEmail(email)) {
           showFeedback("メールアドレスの形式をご確認ください。", true);
           return;
         }
-        if (isErrorType() && attachmentsCache.length === 0) {
-          showFeedback("エラー報告にはスクリーンショットを 1 枚以上添付してください。", true);
-          return;
-        }
         // 送信前の明示的同意確認（プライバシー配慮）
+        const attachPart = attachmentsCache.length > 0
+          ? `・添付スクリーンショット ${attachmentsCache.length} 枚\n`
+          : "";
         const consentMsg = isErrorType()
           ? "以下の情報を ClipGift サポートチームに送信します：\n\n" +
             "・エラーログ（ユーザー名・パス・ライセンスキー等は自動マスク済）\n" +
-            "・添付スクリーンショット\n" +
+            attachPart +
             "・コメント欄に入力した内容\n" +
-            "・連絡用メールアドレス（記入時のみ）\n\n" +
+            "・返信先メールアドレス\n\n" +
             "送信してよろしいですか？"
           : "以下の内容を ClipGift サポートチームに送信します：\n\n" +
             "・コメント欄に入力したご要望\n" +
-            "・連絡用メールアドレス（記入時のみ）\n\n" +
+            attachPart +
+            "・返信先メールアドレス\n\n" +
             "送信してよろしいですか？";
         if (!confirm(consentMsg)) return;
         setSendEnabled(false);

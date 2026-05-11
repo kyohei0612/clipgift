@@ -255,6 +255,47 @@ def _detect_unavailable_reason(html: str) -> tuple[bool, str]:
     return False, ""
 
 
+def check_chat_available(url):
+    """動画 DL の前にチャット取得可否を確認する早期チェック。
+    取得不可なら ChatNotAvailableError を即発生 → 親プロセスが progress.json に
+    ユーザー向けメッセージを書いて exit(2) する。
+    既存の HTML 取得 + 判定ロジックを再利用するだけなので軽量。"""
+    print("▶ チャット可否を事前チェック:", url, flush=True)
+    html = _fetch_html(url)
+
+    # ライブ配信中 / リプレイ無効化 / 限定公開 などを判定
+    is_unavailable, msg = _detect_unavailable_reason(html)
+    if is_unavailable:
+        raise ChatNotAvailableError("CHAT_NOT_AVAILABLE", msg)
+
+    api_key, version, yid = _extract_params(html)
+    if not yid:
+        raise ChatNotAvailableError(
+            "NO_YT_INITIAL_DATA",
+            "動画情報の取得に失敗しました。\n"
+            "URL が正しいか、動画が削除されていないかご確認ください。",
+        )
+
+    continuation = _find_continuation(yid)
+    if not continuation:
+        raise ChatNotAvailableError(
+            "NO_CONTINUATION",
+            "この動画ではチャット（コメント）が取得できませんでした。\n\n"
+            "■ アーカイブのライブチャットがオンになっているかご確認ください\n"
+            "  YouTube Studio → 該当動画 → 詳細 → 「コメントとチャット」\n"
+            "  → 「ライブチャットのリプレイを許可」を ON にする必要があります。\n"
+            "\n"
+            "その他の考えられる原因:\n"
+            "  • チャットリプレイが投稿者により無効化されている\n"
+            "  • 通常のアップロード動画でライブチャットが存在しない\n"
+            "  • ライブ配信中で、まだチャットリプレイが生成されていない\n"
+            "\n"
+            "クリップギフトはライブチャットリプレイ前提のツールです。\n"
+            "ライブチャット付きアーカイブ動画 URL でお試しください。",
+        )
+    print("✅ チャット利用可能（continuation 取得 OK）", flush=True)
+
+
 def download_chat(url, progress_path=None, out_path=None):
     """YouTubeチャットログをcsvとして保存する。
 
@@ -627,6 +668,12 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
 def download_video_and_chat(url, base_output_folder, progress_path, max_resolution=1080):
     output_folder = os.path.abspath(base_output_folder)
     os.makedirs(output_folder, exist_ok=True)
+
+    # 動画 DL 前にチャットが取れるかチェック（重い DL を始める前に判定）。
+    # 取れない（アーカイブのライブチャット OFF 等）の場合は ChatNotAvailableError →
+    # main() の except で exit(2) + 親切メッセージ表示。
+    safe_write_json(progress_path, {"progress": 0, "message": "チャット可否を確認中...", "phase": "事前チェック"})
+    check_chat_available(url)
 
     safe_write_json(progress_path, {"progress": 0, "message": "動画ダウンロード開始", "phase": "動画ダウンロード"})
 
