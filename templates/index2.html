@@ -1121,9 +1121,19 @@ body.is-modal-open #queueList::before {
   padding-bottom: 6px;
   border-bottom: 1px solid var(--border);
 }
-/* キューが空のときは浮遊パネルも出さない */
+/* キュー空のときは「まだ空です」を表示（モーダル開いた瞬間に変化が分かるように） */
 body.is-modal-open #queueList:empty {
-  display: none;
+  min-height: 80px;
+}
+body.is-modal-open #queueList:empty::after {
+  content: "キューはまだ空です\Aクリップを選んで\A「キューに追加」してください";
+  white-space: pre;
+  display: block;
+  color: var(--text-secondary, #999);
+  font-size: 12px;
+  padding: 12px 4px;
+  text-align: center;
+  line-height: 1.7;
 }
 @keyframes queueFloatIn {
   from { opacity: 0; transform: translateX(-8px); }
