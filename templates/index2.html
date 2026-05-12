@@ -1079,65 +1079,8 @@ button.btn-danger:disabled {
   .empty-state.is-loading .empty-state-icon { animation: none; opacity: 0.6; }
 }
 
-/* === clipBox: タイトル表示 + 編集 + 現在クリップ強ハイライト（2026-05-12）=== */
-.clipBox {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-}
-.clipBox .clipNum {
-  flex: 0 0 auto;
-  font-weight: 700;
-  color: var(--text-secondary, #888);
-  min-width: 1.5em;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.clipBox .clipTitleWrap {
-  flex: 1 1 auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.clipBox .clipTitle {
-  flex: 1 1 auto;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: 600;
-  min-width: 0;
-}
-.clipBox .clipTitle.is-empty {
-  color: var(--text-muted, #aaa);
-  font-style: italic;
-  font-weight: 400;
-}
-.clipBox .clipEditBtn {
-  flex: 0 0 auto;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 2px 8px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-color);
-  opacity: 0.4;
-  transition: opacity .15s, background .15s;
-}
-.clipBox:hover .clipEditBtn { opacity: 1; }
-.clipBox .clipEditBtn:hover { background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.6); }
-.clipBox .clipTime {
-  flex: 0 0 auto;
-  font-size: 0.85em;
-  color: var(--text-secondary, #666);
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-.clipBox .clipTitleInlineInput {
+/* === queueList: タイトルインライン編集用入力欄（鉛筆 → input への置換時） === */
+.clipTitleInlineInput {
   flex: 1 1 auto;
   font-size: 1em;
   padding: 4px 8px;
@@ -1149,15 +1092,42 @@ button.btn-danger:disabled {
   color: var(--text-color);
 }
 
-/* 現在モーダル表示中のクリップ：強ハイライトで「浮き上がる」見た目
-   モーダル背景透明化と合わせて、メイン画面で「これだ」が一目でわかる */
-.clipBox.is-current {
-  border: 2px solid #60a5fa !important;
-  background: rgba(96, 165, 250, 0.14) !important;
-  box-shadow: 0 6px 20px rgba(96, 165, 250, 0.35), 0 0 0 4px rgba(96, 165, 250, 0.08);
-  transform: translateY(-1px);
-  position: relative;
-  z-index: 5;
+/* === モーダル開時: キューリストを画面左に浮遊表示（2026-05-12 kyohei さん指示）
+   モーダル詳細を操作しながら、追加済みクリップの一覧を確認できる === */
+body.is-modal-open #queueList {
+  position: fixed;
+  left: 16px;
+  top: 80px;
+  max-height: calc(100vh - 96px);
+  width: min(360px, 30vw);
+  overflow-y: auto;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  z-index: 998;
+  pointer-events: auto;
+  text-align: left;
+  animation: queueFloatIn .18s ease-out;
+}
+body.is-modal-open #queueList::before {
+  content: "📋 キュー";
+  display: block;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text-secondary, #666);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+/* キューが空のときは浮遊パネルも出さない */
+body.is-modal-open #queueList:empty {
+  display: none;
+}
+@keyframes queueFloatIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 </style>
   <script src="/static/theme.js" defer></script>
@@ -4488,7 +4458,7 @@ function renderClipsList() {
   const clipsList = document.getElementById("clipList");
   clipsList.innerHTML = "";
 
-  clips.forEach((clip, idx) => {
+  clips.forEach((clip) => {
     if (!clip || !clip.id) {
       console.warn("🚫 無効なclipがスキップされました:", clip);
       return;
@@ -4511,45 +4481,7 @@ function renderClipsList() {
 
     const li = document.createElement("li");
     li.className = "clipBox";
-    li.dataset.clipId = clip.id;
-
-    // 番号
-    const numEl = document.createElement("span");
-    numEl.className = "clipNum";
-    numEl.textContent = String(idx + 1);
-
-    // タイトル + 編集ボタン
-    const titleWrap = document.createElement("div");
-    titleWrap.className = "clipTitleWrap";
-    const titleEl = document.createElement("span");
-    titleEl.className = "clipTitle";
-    const titleText = (clip.title || "").trim();
-    if (titleText === "") {
-      titleEl.textContent = "（タイトル未設定）";
-      titleEl.classList.add("is-empty");
-    } else {
-      titleEl.textContent = titleText;
-    }
-    const editBtn = document.createElement("button");
-    editBtn.className = "clipEditBtn";
-    editBtn.type = "button";
-    editBtn.title = "タイトルを編集";
-    editBtn.textContent = "✎";
-    editBtn.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      __startInlineTitleEdit(clip, titleEl);
-    });
-    titleWrap.appendChild(titleEl);
-    titleWrap.appendChild(editBtn);
-
-    // 時刻
-    const timeEl = document.createElement("span");
-    timeEl.className = "clipTime";
-    timeEl.textContent = `${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)}`;
-
-    li.appendChild(numEl);
-    li.appendChild(titleWrap);
-    li.appendChild(timeEl);
+    li.textContent = `クリップを再生する: ${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)}`;
 
     li.addEventListener("click", (e) => {
       currentClip = clip;
@@ -4613,93 +4545,7 @@ function renderClipsList() {
 
     clipsList.appendChild(li);
   });
-
-  // 再描画後にハイライトを復元
-  try { __updateClipBoxHighlight(currentClipId); } catch (_) {}
 }
-
-// === 現在モーダル表示中のクリップを強ハイライト（2026-05-12 kyohei さん指示） ===
-function __updateClipBoxHighlight(id) {
-  try {
-    document.querySelectorAll(".clipBox.is-current").forEach((el) => {
-      el.classList.remove("is-current");
-    });
-    if (id == null) return;
-    const el = document.querySelector(`.clipBox[data-clip-id="${CSS.escape(String(id))}"]`);
-    if (el) el.classList.add("is-current");
-  } catch (e) {
-    console.warn("__updateClipBoxHighlight 失敗:", e);
-  }
-}
-window.__updateClipBoxHighlight = __updateClipBoxHighlight;
-
-// === クリップタイトルのインライン編集（鉛筆ボタン経由） ===
-function __startInlineTitleEdit(clip, titleEl) {
-  if (!clip || !titleEl || !titleEl.parentNode) return;
-  const input = document.createElement("input");
-  input.type = "text";
-  input.className = "clipTitleInlineInput";
-  input.value = clip.title || "";
-  input.placeholder = "タイトルを入力";
-  input.maxLength = 200;
-  titleEl.parentNode.replaceChild(input, titleEl);
-  input.focus();
-  input.select();
-
-  let committed = false;
-  const commit = (save) => {
-    if (committed) return;
-    committed = true;
-    const newVal = save ? input.value.trim() : (clip.title || "");
-    if (save) clip.title = newVal;
-
-    const newTitleEl = document.createElement("span");
-    newTitleEl.className = "clipTitle";
-    if (newVal === "") {
-      newTitleEl.textContent = "（タイトル未設定）";
-      newTitleEl.classList.add("is-empty");
-    } else {
-      newTitleEl.textContent = newVal;
-    }
-    if (input.parentNode) input.parentNode.replaceChild(newTitleEl, input);
-
-    if (!save) return;
-
-    // モーダルが同じクリップで開いてる場合、入力欄とヘッダも同期
-    if (currentClipId === clip.id) {
-      const modalTitleInput = document.getElementById("modalTitleInput");
-      if (modalTitleInput) {
-        modalTitleInput.value = newVal;
-        try { modalTitleInput.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) {}
-      }
-    }
-    // queue にも同じ id があればタイトル同期
-    try {
-      if (typeof queue !== "undefined" && Array.isArray(queue)) {
-        const q = queue.find((c) => c && c.id === clip.id);
-        if (q) {
-          q.title = newVal;
-          if (typeof renderQueueList === "function") {
-            try { renderQueueList(); } catch (_) {}
-          }
-        }
-      }
-    } catch (_) {}
-  };
-
-  input.addEventListener("keydown", (e) => {
-    if (e.isComposing) return;
-    if (e.key === "Enter") {
-      e.preventDefault();
-      commit(true);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      commit(false);
-    }
-  });
-  input.addEventListener("blur", () => commit(true));
-}
-window.__startInlineTitleEdit = __startInlineTitleEdit;
 
 // === キューリストのタイトルインライン編集 ===
 function __startQueueTitleEdit(clip, titleElem) {
@@ -4740,28 +4586,11 @@ function __startQueueTitleEdit(clip, titleElem) {
 
     if (!save) return;
 
-    // clips にも同 id があれば同期
+    // clips 配列に同 id があればタイトル同期（メモリ内のみ、UI 表示は queueList で完結）
     try {
       if (Array.isArray(clips)) {
         const c = clips.find((x) => x && x.id === clip.id);
-        if (c) {
-          c.title = newVal;
-          const liEl = document.querySelector(
-            `.clipBox[data-clip-id="${CSS.escape(String(clip.id))}"]`
-          );
-          if (liEl) {
-            const listTitleEl = liEl.querySelector(".clipTitle");
-            if (listTitleEl) {
-              if (newVal === "") {
-                listTitleEl.textContent = "（タイトル未設定）";
-                listTitleEl.classList.add("is-empty");
-              } else {
-                listTitleEl.textContent = newVal;
-                listTitleEl.classList.remove("is-empty");
-              }
-            }
-          }
-        }
+        if (c) c.title = newVal;
       }
     } catch (_) {}
 
@@ -4802,10 +4631,11 @@ function closeModal() {
   }
 
   modalOverlay.style.display = "none";
+  // モーダル閉時にキューリスト浮遊状態を解除
+  try { document.body.classList.remove("is-modal-open"); } catch (_) {}
 
   currentClipElement = null;
   currentClipId = null;
-  try { __updateClipBoxHighlight(null); } catch (_) {}
 }
 
 // === クリップ・キューの localStorage 永続化は廃止（2026-05-12 kyohei さん指示）
@@ -5731,49 +5561,21 @@ window.commitCurrentClipRange = commitCurrentClipRange;
 
 // === Phase A 配線 (DOMContentLoaded 後に実行) ============================
 function __phaseAWireUp() {
-  // --- #1 タイトル入力中のヘッダ同期 + clipList の該当 li タイトルも同期（2026-05-12） ---
+  // --- #1 タイトル入力中のヘッダ同期 ---
   const titleInput = document.getElementById("modalTitleInput");
   if (titleInput && !titleInput.__headerSyncBound) {
     titleInput.addEventListener("input", () => {
       const titleDispEl = document.getElementById("modalClipTitleDisplay");
+      if (!titleDispEl) return;
       const idx = (Array.isArray(clips) && currentClipId != null)
         ? clips.findIndex((c) => c.id === currentClipId) : -1;
       const v = titleInput.value.trim();
-
-      // モーダルヘッダの表示更新
-      if (titleDispEl) {
-        if (v === "") {
-          titleDispEl.textContent = idx >= 0 ? `クリップ ${idx + 1}` : "未入力";
-          titleDispEl.classList.add("is-empty");
-        } else {
-          titleDispEl.textContent = v;
-          titleDispEl.classList.remove("is-empty");
-        }
-      }
-
-      // メイン画面のクリップリスト側 タイトルもリアルタイム同期
-      if (currentClipId != null) {
-        try {
-          const liEl = document.querySelector(
-            `.clipBox[data-clip-id="${CSS.escape(String(currentClipId))}"]`
-          );
-          if (liEl) {
-            const listTitleEl = liEl.querySelector(".clipTitle");
-            if (listTitleEl) {
-              if (v === "") {
-                listTitleEl.textContent = "（タイトル未設定）";
-                listTitleEl.classList.add("is-empty");
-              } else {
-                listTitleEl.textContent = v;
-                listTitleEl.classList.remove("is-empty");
-              }
-            }
-          }
-          // clips 配列にも反映（モーダルキャンセル時の取り消しは別途）
-          if (Array.isArray(clips) && idx >= 0) {
-            clips[idx].title = titleInput.value;
-          }
-        } catch (_) {}
+      if (v === "") {
+        titleDispEl.textContent = idx >= 0 ? `クリップ ${idx + 1}` : "未入力";
+        titleDispEl.classList.add("is-empty");
+      } else {
+        titleDispEl.textContent = v;
+        titleDispEl.classList.remove("is-empty");
       }
     });
     titleInput.__headerSyncBound = true;
@@ -5960,13 +5762,13 @@ function __phaseBWireUp() {
     nextBtn.__phaseBBound = true;
   }
 
-  // --- openModal を wrap してナビ状態 + 現在クリップのハイライトを更新 ---
+  // --- openModal を wrap してナビ状態を更新 + キューリスト浮遊モードへ ---
   if (typeof openModal === "function" && !openModal.__phaseBWrapped) {
     const __origOpenModal = openModal;
     openModal = async function (id, event) {
       const r = await __origOpenModal.call(this, id, event);
       try { __updateNavBtnState(); } catch (_) {}
-      try { __updateClipBoxHighlight(id); } catch (_) {}
+      try { document.body.classList.add("is-modal-open"); } catch (_) {}
       return r;
     };
     openModal.__phaseBWrapped = true;
