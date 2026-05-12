@@ -1093,23 +1093,28 @@ button.btn-danger:disabled {
 }
 
 /* === モーダル開時: キューリストを画面左に浮遊表示（2026-05-12 kyohei さん指示）
-   モーダル詳細を操作しながら、追加済みクリップの一覧を確認できる === */
+   既存ロジックが queueList を display:none にしている可能性があるため
+   !important で強制上書きして確実に表示する === */
 body.is-modal-open #queueList {
-  position: fixed;
-  left: 16px;
-  top: 80px;
-  max-height: calc(100vh - 96px);
-  width: min(360px, 30vw);
-  overflow-y: auto;
-  background: var(--surface-elevated);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
-  z-index: 998;
-  pointer-events: auto;
-  text-align: left;
-  animation: queueFloatIn .18s ease-out;
+  display: block !important;
+  position: fixed !important;
+  left: 16px !important;
+  top: 80px !important;
+  max-height: calc(100vh - 96px) !important;
+  width: min(360px, 30vw) !important;
+  min-width: 240px !important;
+  overflow-y: auto !important;
+  background: var(--surface-elevated) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 12px !important;
+  padding: 12px !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18) !important;
+  z-index: 998 !important;
+  pointer-events: auto !important;
+  text-align: left !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  animation: queueFloatIn .18s ease-out !important;
 }
 body.is-modal-open #queueList::before {
   content: "📋 キュー";
@@ -1123,7 +1128,7 @@ body.is-modal-open #queueList::before {
 }
 /* キュー空のときは「まだ空です」を表示（モーダル開いた瞬間に変化が分かるように） */
 body.is-modal-open #queueList:empty {
-  min-height: 80px;
+  min-height: 80px !important;
 }
 body.is-modal-open #queueList:empty::after {
   content: "キューはまだ空です\Aクリップを選んで\A「キューに追加」してください";
