@@ -41,6 +41,12 @@ logging.basicConfig(
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
+# === Phase 1 (BOOTH 買い切り版): ライセンス認証 OFF ===
+# 2026-05-13 kyohei さん指示で BOOTH 公開時に honor system 運用に切替。
+# 利用規約で再配布・転売禁止を謳い、技術的制限は Phase 2 サブスク移行時に復活する。
+# licensing/ モジュール本体は温存（このフラグを False にすれば即復活可能）。
+PHASE_1_HONOR_SYSTEM = True
+
 app = Flask(
     __name__,
     template_folder=os.path.join(BASE_DIR, "templates"),
@@ -1203,6 +1209,19 @@ def license_info_route():
             "needs_verification": bool
         }
     """
+    # Phase 1 honor system: 認証なしでも「買い切り版」として返す
+    # UI ヘッダで「未認証」と出るとユーザーが不安になるため
+    if PHASE_1_HONOR_SYSTEM:
+        return jsonify({
+            "authenticated": True,
+            "plan": "single",
+            "plan_label": "ClipGift 買い切り版",
+            "support_active": True,
+            "support_remaining_days": None,
+            "extension_enabled": True,
+            "machine_slot": 1,
+            "needs_verification": False,
+        })
     try:
         from licensing import get_plan_gate
         gate = get_plan_gate()
@@ -1518,11 +1537,12 @@ if __name__ == "__main__":
     # ライセンス認証より先に行い、subprocess 起動不能な状態で先へ進ませない。
     _check_python_executable_or_exit()
 
-    # ライセンス認証チェック（NG なら起動中止）
-    # 開発用バイパス: 環境変数 CLIPGIFT_SKIP_LICENSE=1 で認証スキップ
-    # ⚠️ プロダクションリリース時は絶対に設定しない
-    if os.environ.get("CLIPGIFT_SKIP_LICENSE") == "1":
-        logger.warning("⚠️ CLIPGIFT_SKIP_LICENSE=1: ライセンス認証をスキップ（開発専用）")
+    # ライセンス認証チェック
+    # - Phase 1 (BOOTH 買い切り版) は PHASE_1_HONOR_SYSTEM=True で常に bypass（honor system 運用）
+    # - 開発用バイパス: 環境変数 CLIPGIFT_SKIP_LICENSE=1 でもスキップ可能
+    # - Phase 2 (サブスク移行時) は PHASE_1_HONOR_SYSTEM=False に戻して既存ロジック復活
+    if PHASE_1_HONOR_SYSTEM or os.environ.get("CLIPGIFT_SKIP_LICENSE") == "1":
+        logger.info("ライセンス認証: OFF (Phase 1 honor system / BOOTH 買い切り版)")
     else:
         try:
             from licensing import authenticate_or_block

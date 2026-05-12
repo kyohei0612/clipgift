@@ -144,6 +144,9 @@ def _call_issue_api(server_url: str, admin_token: str, body: dict) -> dict | Non
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {admin_token}",
+            # Cloudflare の Bot Fight Mode が Python urllib のデフォルト UA を
+            # ブロックする場合があるため、識別可能な UA を明示
+            "User-Agent": "ClipGift-AdminCLI/1.0",
         },
         method="POST",
     )
