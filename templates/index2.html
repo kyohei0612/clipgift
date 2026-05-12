@@ -468,19 +468,20 @@ ul li { margin-bottom: 8px; }
 .selected  { background: rgba(96, 165, 250, 0.10); border-color: rgba(96, 165, 250, 0.45) !important; }
 
 /* === Modal === */
+/* 2026-05-12 kyohei さん指示: モーダル開いてる間も背景のクリップリストを操作できるよう
+   overlay を完全透明 + pointer-events: none に。モーダル本体だけ pointer-events: auto */
 #modalOverlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(2, 6, 23, 0.65);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  background: transparent;
   display: none;
   align-items: center;
   justify-content: center;
   z-index: 999;
+  pointer-events: none;
 }
 #modal {
   background: var(--surface-elevated);
@@ -493,6 +494,7 @@ ul li { margin-bottom: 8px; }
   overflow-y: auto;
   box-sizing: border-box;
   box-shadow: var(--shadow-lg);
+  pointer-events: auto;
 }
 #modal video { width: 100%; max-width: 100%; height: auto; border-radius: var(--radius-md); }
 
@@ -1075,6 +1077,87 @@ button.btn-danger:disabled {
 @media (prefers-reduced-motion: reduce) {
   .skeleton-card::after { animation: none; opacity: 0.4; }
   .empty-state.is-loading .empty-state-icon { animation: none; opacity: 0.6; }
+}
+
+/* === clipBox: タイトル表示 + 編集 + 現在クリップ強ハイライト（2026-05-12）=== */
+.clipBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+}
+.clipBox .clipNum {
+  flex: 0 0 auto;
+  font-weight: 700;
+  color: var(--text-secondary, #888);
+  min-width: 1.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.clipBox .clipTitleWrap {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.clipBox .clipTitle {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  min-width: 0;
+}
+.clipBox .clipTitle.is-empty {
+  color: var(--text-muted, #aaa);
+  font-style: italic;
+  font-weight: 400;
+}
+.clipBox .clipEditBtn {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-color);
+  opacity: 0.4;
+  transition: opacity .15s, background .15s;
+}
+.clipBox:hover .clipEditBtn { opacity: 1; }
+.clipBox .clipEditBtn:hover { background: rgba(96, 165, 250, 0.12); border-color: rgba(96, 165, 250, 0.6); }
+.clipBox .clipTime {
+  flex: 0 0 auto;
+  font-size: 0.85em;
+  color: var(--text-secondary, #666);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.clipBox .clipTitleInlineInput {
+  flex: 1 1 auto;
+  font-size: 1em;
+  padding: 4px 8px;
+  border: 1.5px solid #3b82f6;
+  border-radius: 6px;
+  outline: none;
+  min-width: 0;
+  background: var(--input-bg, #fff);
+  color: var(--text-color);
+}
+
+/* 現在モーダル表示中のクリップ：強ハイライトで「浮き上がる」見た目
+   モーダル背景透明化と合わせて、メイン画面で「これだ」が一目でわかる */
+.clipBox.is-current {
+  border: 2px solid #60a5fa !important;
+  background: rgba(96, 165, 250, 0.14) !important;
+  box-shadow: 0 6px 20px rgba(96, 165, 250, 0.35), 0 0 0 4px rgba(96, 165, 250, 0.08);
+  transform: translateY(-1px);
+  position: relative;
+  z-index: 5;
 }
 </style>
   <script src="/static/theme.js" defer></script>
@@ -4405,7 +4488,7 @@ function renderClipsList() {
   const clipsList = document.getElementById("clipList");
   clipsList.innerHTML = "";
 
-  clips.forEach((clip) => {
+  clips.forEach((clip, idx) => {
     if (!clip || !clip.id) {
       console.warn("🚫 無効なclipがスキップされました:", clip);
       return;
@@ -4428,7 +4511,45 @@ function renderClipsList() {
 
     const li = document.createElement("li");
     li.className = "clipBox";
-    li.textContent = `クリップを再生する: ${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)}`;
+    li.dataset.clipId = clip.id;
+
+    // 番号
+    const numEl = document.createElement("span");
+    numEl.className = "clipNum";
+    numEl.textContent = String(idx + 1);
+
+    // タイトル + 編集ボタン
+    const titleWrap = document.createElement("div");
+    titleWrap.className = "clipTitleWrap";
+    const titleEl = document.createElement("span");
+    titleEl.className = "clipTitle";
+    const titleText = (clip.title || "").trim();
+    if (titleText === "") {
+      titleEl.textContent = "（タイトル未設定）";
+      titleEl.classList.add("is-empty");
+    } else {
+      titleEl.textContent = titleText;
+    }
+    const editBtn = document.createElement("button");
+    editBtn.className = "clipEditBtn";
+    editBtn.type = "button";
+    editBtn.title = "タイトルを編集";
+    editBtn.textContent = "✎";
+    editBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      __startInlineTitleEdit(clip, titleEl);
+    });
+    titleWrap.appendChild(titleEl);
+    titleWrap.appendChild(editBtn);
+
+    // 時刻
+    const timeEl = document.createElement("span");
+    timeEl.className = "clipTime";
+    timeEl.textContent = `${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)}`;
+
+    li.appendChild(numEl);
+    li.appendChild(titleWrap);
+    li.appendChild(timeEl);
 
     li.addEventListener("click", (e) => {
       currentClip = clip;
@@ -4492,7 +4613,176 @@ function renderClipsList() {
 
     clipsList.appendChild(li);
   });
+
+  // 再描画後にハイライトを復元
+  try { __updateClipBoxHighlight(currentClipId); } catch (_) {}
 }
+
+// === 現在モーダル表示中のクリップを強ハイライト（2026-05-12 kyohei さん指示） ===
+function __updateClipBoxHighlight(id) {
+  try {
+    document.querySelectorAll(".clipBox.is-current").forEach((el) => {
+      el.classList.remove("is-current");
+    });
+    if (id == null) return;
+    const el = document.querySelector(`.clipBox[data-clip-id="${CSS.escape(String(id))}"]`);
+    if (el) el.classList.add("is-current");
+  } catch (e) {
+    console.warn("__updateClipBoxHighlight 失敗:", e);
+  }
+}
+window.__updateClipBoxHighlight = __updateClipBoxHighlight;
+
+// === クリップタイトルのインライン編集（鉛筆ボタン経由） ===
+function __startInlineTitleEdit(clip, titleEl) {
+  if (!clip || !titleEl || !titleEl.parentNode) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "clipTitleInlineInput";
+  input.value = clip.title || "";
+  input.placeholder = "タイトルを入力";
+  input.maxLength = 200;
+  titleEl.parentNode.replaceChild(input, titleEl);
+  input.focus();
+  input.select();
+
+  let committed = false;
+  const commit = (save) => {
+    if (committed) return;
+    committed = true;
+    const newVal = save ? input.value.trim() : (clip.title || "");
+    if (save) clip.title = newVal;
+
+    const newTitleEl = document.createElement("span");
+    newTitleEl.className = "clipTitle";
+    if (newVal === "") {
+      newTitleEl.textContent = "（タイトル未設定）";
+      newTitleEl.classList.add("is-empty");
+    } else {
+      newTitleEl.textContent = newVal;
+    }
+    if (input.parentNode) input.parentNode.replaceChild(newTitleEl, input);
+
+    if (!save) return;
+
+    // モーダルが同じクリップで開いてる場合、入力欄とヘッダも同期
+    if (currentClipId === clip.id) {
+      const modalTitleInput = document.getElementById("modalTitleInput");
+      if (modalTitleInput) {
+        modalTitleInput.value = newVal;
+        try { modalTitleInput.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) {}
+      }
+    }
+    // queue にも同じ id があればタイトル同期
+    try {
+      if (typeof queue !== "undefined" && Array.isArray(queue)) {
+        const q = queue.find((c) => c && c.id === clip.id);
+        if (q) {
+          q.title = newVal;
+          if (typeof renderQueueList === "function") {
+            try { renderQueueList(); } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.isComposing) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commit(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      commit(false);
+    }
+  });
+  input.addEventListener("blur", () => commit(true));
+}
+window.__startInlineTitleEdit = __startInlineTitleEdit;
+
+// === キューリストのタイトルインライン編集 ===
+function __startQueueTitleEdit(clip, titleElem) {
+  if (!clip || !titleElem || !titleElem.parentNode) return;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "clipTitleInlineInput";
+  input.value = clip.title || "";
+  input.placeholder = "タイトルを入力";
+  input.maxLength = 200;
+  input.style.flexGrow = "1";
+  input.style.minWidth = "0";
+  titleElem.parentNode.replaceChild(input, titleElem);
+  input.focus();
+  input.select();
+
+  let committed = false;
+  const commit = (save) => {
+    if (committed) return;
+    committed = true;
+    const newVal = save ? input.value.trim() : (clip.title || "");
+    if (save) clip.title = newVal;
+
+    const newTitleElem = document.createElement("div");
+    newTitleElem.className = "clipTitle";
+    const displayText = newVal === "" ? "タイトルを入力してください" : newVal;
+    newTitleElem.textContent = displayText;
+    newTitleElem.style.whiteSpace = "nowrap";
+    newTitleElem.style.overflow = "hidden";
+    newTitleElem.style.textOverflow = "ellipsis";
+    newTitleElem.style.color = newVal === "" ? "#aaa" : "#444";
+    newTitleElem.style.fontStyle = newVal === "" ? "italic" : "normal";
+    newTitleElem.style.fontWeight = "bold";
+    newTitleElem.style.flexShrink = "1";
+    newTitleElem.style.flexGrow = "1";
+    newTitleElem.style.minWidth = "0";
+    if (input.parentNode) input.parentNode.replaceChild(newTitleElem, input);
+
+    if (!save) return;
+
+    // clips にも同 id があれば同期
+    try {
+      if (Array.isArray(clips)) {
+        const c = clips.find((x) => x && x.id === clip.id);
+        if (c) {
+          c.title = newVal;
+          const liEl = document.querySelector(
+            `.clipBox[data-clip-id="${CSS.escape(String(clip.id))}"]`
+          );
+          if (liEl) {
+            const listTitleEl = liEl.querySelector(".clipTitle");
+            if (listTitleEl) {
+              if (newVal === "") {
+                listTitleEl.textContent = "（タイトル未設定）";
+                listTitleEl.classList.add("is-empty");
+              } else {
+                listTitleEl.textContent = newVal;
+                listTitleEl.classList.remove("is-empty");
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
+    // モーダルが同じクリップで開いてる場合、入力欄も同期
+    if (currentClipId === clip.id) {
+      const modalTitleInput = document.getElementById("modalTitleInput");
+      if (modalTitleInput) {
+        modalTitleInput.value = newVal;
+        try { modalTitleInput.dispatchEvent(new Event("input", { bubbles: true })); } catch (_) {}
+      }
+    }
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.isComposing) return;
+    if (e.key === "Enter") { e.preventDefault(); commit(true); }
+    else if (e.key === "Escape") { e.preventDefault(); commit(false); }
+  });
+  input.addEventListener("blur", () => commit(true));
+}
+window.__startQueueTitleEdit = __startQueueTitleEdit;
 
 function closeModal() {
   if (currentClipId) {
@@ -4515,57 +4805,22 @@ function closeModal() {
 
   currentClipElement = null;
   currentClipId = null;
+  try { __updateClipBoxHighlight(null); } catch (_) {}
 }
 
-// === localStorage で queue / completed / failed を永続化（リロード時復元）===
+// === クリップ・キューの localStorage 永続化は廃止（2026-05-12 kyohei さん指示）
+// 設定（フォント / 色 / サイズ / トグル等）は別キーで継続。
+// クリップデータは毎回まっさら状態でスタートする。
 const STORAGE_KEY_QUEUE = "clipgift_queue_v1";
 const STORAGE_KEY_COMPLETED = "clipgift_completed_v1";
 const STORAGE_KEY_FAILED = "clipgift_failed_v1";
 
 function saveQueueState() {
-  try {
-    localStorage.setItem(STORAGE_KEY_QUEUE, JSON.stringify(queue));
-    localStorage.setItem(STORAGE_KEY_COMPLETED, JSON.stringify(completedIds));
-    localStorage.setItem(STORAGE_KEY_FAILED, JSON.stringify(failedIds));
-  } catch (e) {
-    console.warn("queue 状態の保存に失敗:", e);
-  }
+  // no-op: クリップ永続化は廃止
 }
 
 function loadQueueState() {
-  try {
-    const q = localStorage.getItem(STORAGE_KEY_QUEUE);
-    const c = localStorage.getItem(STORAGE_KEY_COMPLETED);
-    const f = localStorage.getItem(STORAGE_KEY_FAILED);
-    if (q) {
-      const parsed = JSON.parse(q);
-      if (Array.isArray(parsed)) {
-        queue = parsed;
-      }
-    }
-    if (c) {
-      const parsed = JSON.parse(c);
-      if (Array.isArray(parsed)) {
-        completedIds = parsed;
-        completedSet = new Set(parsed);
-      }
-    }
-    if (f) {
-      const parsed = JSON.parse(f);
-      if (Array.isArray(parsed)) {
-        failedIds = parsed;
-        failedSet = new Set(parsed);
-      }
-    }
-    if (queue.length > 0) {
-      console.log(
-        `📦 localStorage からキュー復元: ${queue.length} 件 ` +
-        `(完了 ${completedIds.length} / 失敗 ${failedIds.length})`
-      );
-    }
-  } catch (e) {
-    console.warn("queue 状態の復元に失敗:", e);
-  }
+  // no-op: クリップ永続化は廃止
 }
 
 function clearQueueState() {
@@ -4576,11 +4831,15 @@ function clearQueueState() {
   } catch (e) {}
 }
 
-// 起動時に復元
+// 起動時に残骸キーをクリア（旧バージョンで保存されたデータの掃除）
 document.addEventListener("DOMContentLoaded", () => {
+  try {
+    localStorage.removeItem(STORAGE_KEY_QUEUE);
+    localStorage.removeItem(STORAGE_KEY_COMPLETED);
+    localStorage.removeItem(STORAGE_KEY_FAILED);
+    localStorage.removeItem("clipgift_clips_v1");
+  } catch (_) {}
   setTimeout(() => {
-    loadQueueState();
-    if (queue.length > 0) renderQueueList();
     updateBatchButtonMode();
   }, 100);
 });
@@ -4625,8 +4884,15 @@ function renderQueueList() {
     infoWrapper.style.minWidth = "0";
     infoWrapper.style.flexShrink = "1";
 
+    // タイトル行（タイトル表示 + 鉛筆編集ボタン）
+    const titleRow = document.createElement("div");
+    titleRow.style.display = "flex";
+    titleRow.style.alignItems = "center";
+    titleRow.style.gap = "6px";
+    titleRow.style.minWidth = "0";
+
     const titleText =
-      clip.title.trim() === "" ? "タイトルを入力してください" : clip.title;
+      (clip.title || "").trim() === "" ? "タイトルを入力してください" : clip.title;
 
     const titleElem = document.createElement("div");
     titleElem.className = "clipTitle";
@@ -4634,13 +4900,36 @@ function renderQueueList() {
     titleElem.style.whiteSpace = "nowrap";
     titleElem.style.overflow = "hidden";
     titleElem.style.textOverflow = "ellipsis";
-    titleElem.style.color = clip.title.trim() === "" ? "#aaa" : "#444";
-    titleElem.style.fontStyle = clip.title.trim() === "" ? "italic" : "normal";
+    titleElem.style.color = (clip.title || "").trim() === "" ? "#aaa" : "#444";
+    titleElem.style.fontStyle = (clip.title || "").trim() === "" ? "italic" : "normal";
     titleElem.style.fontWeight = "bold";
     titleElem.style.flexShrink = "1";
+    titleElem.style.flexGrow = "1";
     titleElem.style.minWidth = "0";
+    titleRow.appendChild(titleElem);
 
-    infoWrapper.appendChild(titleElem);
+    // 鉛筆編集ボタン
+    const editTitleBtn = document.createElement("button");
+    editTitleBtn.type = "button";
+    editTitleBtn.textContent = "✎";
+    editTitleBtn.title = "タイトルを編集";
+    editTitleBtn.style.flexShrink = "0";
+    editTitleBtn.style.background = "transparent";
+    editTitleBtn.style.border = "1px solid #ddd";
+    editTitleBtn.style.borderRadius = "6px";
+    editTitleBtn.style.padding = "2px 8px";
+    editTitleBtn.style.fontSize = "13px";
+    editTitleBtn.style.cursor = "pointer";
+    editTitleBtn.style.opacity = "0.5";
+    editTitleBtn.addEventListener("mouseenter", () => { editTitleBtn.style.opacity = "1"; });
+    editTitleBtn.addEventListener("mouseleave", () => { editTitleBtn.style.opacity = "0.5"; });
+    editTitleBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      __startQueueTitleEdit(clip, titleElem);
+    });
+    titleRow.appendChild(editTitleBtn);
+
+    infoWrapper.appendChild(titleRow);
 
     const timeElem = document.createElement("div");
     timeElem.className = "clipTime";
@@ -5389,33 +5678,14 @@ function showModalBanner(modalEl, kind, message, autoHideMs = 0) {
   return banner;
 }
 
-// === #2 localStorage で範囲を永続化 ======================================
-// W-3: 命名統一。既存の clipgift_queue_v1 等とアンダースコア型に揃える。
+// === #2 localStorage によるクリップ範囲の永続化は廃止（2026-05-12 kyohei さん指示）
+// 「保存するのは設定項目だけ」方針に統一。クリップは毎回リセット。
 const STORAGE_KEY_CLIPS = "clipgift_clips_v1";
 function persistClipsToStorage() {
-  try {
-    if (!Array.isArray(clips)) return;
-    const minimal = clips.map((c) => ({
-      id: c.id,
-      title: c.title ?? "",
-      startSec: c.startSec,
-      endSec: c.endSec,
-      originalStartSec: c.originalStartSec,
-      originalEndSec: c.originalEndSec,
-    }));
-    localStorage.setItem(STORAGE_KEY_CLIPS, JSON.stringify(minimal));
-  } catch (e) {
-    console.warn("clips 保存失敗:", e);
-  }
+  // no-op: クリップ永続化は廃止
 }
 function restoreClipsFromStorage() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY_CLIPS);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch (e) {
-    return null;
-  }
+  return null;
 }
 window.persistClipsToStorage = persistClipsToStorage;
 
@@ -5461,21 +5731,49 @@ window.commitCurrentClipRange = commitCurrentClipRange;
 
 // === Phase A 配線 (DOMContentLoaded 後に実行) ============================
 function __phaseAWireUp() {
-  // --- #1 タイトル入力中のヘッダ同期 ---
+  // --- #1 タイトル入力中のヘッダ同期 + clipList の該当 li タイトルも同期（2026-05-12） ---
   const titleInput = document.getElementById("modalTitleInput");
   if (titleInput && !titleInput.__headerSyncBound) {
     titleInput.addEventListener("input", () => {
       const titleDispEl = document.getElementById("modalClipTitleDisplay");
-      if (!titleDispEl) return;
       const idx = (Array.isArray(clips) && currentClipId != null)
         ? clips.findIndex((c) => c.id === currentClipId) : -1;
       const v = titleInput.value.trim();
-      if (v === "") {
-        titleDispEl.textContent = idx >= 0 ? `クリップ ${idx + 1}` : "未入力";
-        titleDispEl.classList.add("is-empty");
-      } else {
-        titleDispEl.textContent = v;
-        titleDispEl.classList.remove("is-empty");
+
+      // モーダルヘッダの表示更新
+      if (titleDispEl) {
+        if (v === "") {
+          titleDispEl.textContent = idx >= 0 ? `クリップ ${idx + 1}` : "未入力";
+          titleDispEl.classList.add("is-empty");
+        } else {
+          titleDispEl.textContent = v;
+          titleDispEl.classList.remove("is-empty");
+        }
+      }
+
+      // メイン画面のクリップリスト側 タイトルもリアルタイム同期
+      if (currentClipId != null) {
+        try {
+          const liEl = document.querySelector(
+            `.clipBox[data-clip-id="${CSS.escape(String(currentClipId))}"]`
+          );
+          if (liEl) {
+            const listTitleEl = liEl.querySelector(".clipTitle");
+            if (listTitleEl) {
+              if (v === "") {
+                listTitleEl.textContent = "（タイトル未設定）";
+                listTitleEl.classList.add("is-empty");
+              } else {
+                listTitleEl.textContent = v;
+                listTitleEl.classList.remove("is-empty");
+              }
+            }
+          }
+          // clips 配列にも反映（モーダルキャンセル時の取り消しは別途）
+          if (Array.isArray(clips) && idx >= 0) {
+            clips[idx].title = titleInput.value;
+          }
+        } catch (_) {}
       }
     });
     titleInput.__headerSyncBound = true;
@@ -5662,12 +5960,13 @@ function __phaseBWireUp() {
     nextBtn.__phaseBBound = true;
   }
 
-  // --- openModal を wrap してナビ状態を更新（既存ロジックは破壊しない） ---
+  // --- openModal を wrap してナビ状態 + 現在クリップのハイライトを更新 ---
   if (typeof openModal === "function" && !openModal.__phaseBWrapped) {
     const __origOpenModal = openModal;
     openModal = async function (id, event) {
       const r = await __origOpenModal.call(this, id, event);
       try { __updateNavBtnState(); } catch (_) {}
+      try { __updateClipBoxHighlight(id); } catch (_) {}
       return r;
     };
     openModal.__phaseBWrapped = true;
