@@ -5772,17 +5772,37 @@ function __phaseBWireUp() {
     nextBtn.__phaseBBound = true;
   }
 
-  // --- openModal を wrap してナビ状態を更新 + キューリスト浮遊モードへ ---
+  // --- openModal を wrap してナビ状態を更新 ---
   if (typeof openModal === "function" && !openModal.__phaseBWrapped) {
     const __origOpenModal = openModal;
     openModal = async function (id, event) {
       const r = await __origOpenModal.call(this, id, event);
       try { __updateNavBtnState(); } catch (_) {}
-      try { document.body.classList.add("is-modal-open"); } catch (_) {}
       return r;
     };
     openModal.__phaseBWrapped = true;
     window.openModal = openModal;
+  }
+
+  // --- modalOverlay の display 変化を MutationObserver で監視して
+  //     body.is-modal-open を切替（openModal wrap や直接 style 書換どちらでも反応する）
+  const __modalOverlayEl = document.getElementById("modalOverlay");
+  if (__modalOverlayEl && !window.__modalOpenObserverBound) {
+    const syncModalOpenClass = () => {
+      try {
+        const isOpen = __modalOverlayEl.style.display === "flex";
+        if (isOpen) {
+          document.body.classList.add("is-modal-open");
+        } else {
+          document.body.classList.remove("is-modal-open");
+        }
+      } catch (_) {}
+    };
+    const __modalObserver = new MutationObserver(syncModalOpenClass);
+    __modalObserver.observe(__modalOverlayEl, { attributes: true, attributeFilter: ["style"] });
+    // 初期同期（モーダルが既に開いていた場合のため）
+    syncModalOpenClass();
+    window.__modalOpenObserverBound = true;
   }
 
   // --- renderClipsList を wrap して empty-state を更新 ---
