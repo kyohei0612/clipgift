@@ -1801,6 +1801,19 @@ body.is-modal-open #queueFloatPanel {
       </div>
 
       <!-- エラー報告モーダル -->
+      <!-- 終了確認モーダル（confirm() 代替、ブラウザの dialog block 回避） -->
+      <div id="shutdownConfirmModal" style="display:none;position:fixed;inset:0;background:rgba(2,6,23,0.65);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:10001;align-items:center;justify-content:center;">
+        <div style="background:var(--surface-elevated);border:1px solid var(--border);border-radius:var(--radius-xl);padding:32px;max-width:400px;width:92%;text-align:center;box-shadow:var(--shadow-lg);">
+          <div style="font-size:40px;margin-bottom:12px;">⚠️</div>
+          <h3 style="margin:0 0 12px;font-size:18px;">クリップギフトを閉じますか？</h3>
+          <p style="color:var(--text-secondary);font-size:13px;margin:0 0 24px;line-height:1.7;">処理中の作業は中断されます。</p>
+          <div style="display:flex;gap:12px;justify-content:center;">
+            <button id="shutdownCancelBtn" type="button" class="btn-secondary">キャンセル</button>
+            <button id="shutdownConfirmBtn" type="button" class="btn-danger">閉じる</button>
+          </div>
+        </div>
+      </div>
+
       <div id="errorReportModal" style="display:none;position:fixed;inset:0;background:rgba(2,6,23,0.65);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);z-index:9999;align-items:center;justify-content:center;">
         <div style="background:var(--surface-elevated);border:1px solid var(--border);border-radius:var(--radius-xl);padding:32px;max-width:560px;width:92%;box-shadow:var(--shadow-lg);">
           <h2 style="margin-top:0;font-size:20px;border-left:3px solid var(--brand-500);padding-left:12px;">🛠 サポートに連絡</h2>
@@ -2484,12 +2497,29 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 });
 
-// === 閉じるボタン（タブ閉じる試行 + サーバー終了）===
+// === 閉じるボタン（独自モーダル経由、ブラウザの dialog block 回避）===
 (function initAppCloseButton() {
   const btn = document.getElementById("appCloseBtn");
-  if (!btn) return;
-  btn.addEventListener("click", async () => {
-    if (!confirm("クリップギフトを閉じますか？\n（処理中の作業は中断されます）")) return;
+  const modal = document.getElementById("shutdownConfirmModal");
+  const okBtn = document.getElementById("shutdownConfirmBtn");
+  const cancelBtn = document.getElementById("shutdownCancelBtn");
+  if (!btn || !modal || !okBtn || !cancelBtn) return;
+
+  const closeModal = () => { modal.style.display = "none"; };
+  const openModal = () => { modal.style.display = "flex"; };
+
+  btn.addEventListener("click", openModal);
+  cancelBtn.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    // 背景クリックでキャンセル（モーダル本体クリックは伝播停止）
+    if (e.target === modal) closeModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (modal.style.display === "flex" && e.key === "Escape") closeModal();
+  });
+
+  okBtn.addEventListener("click", async () => {
+    closeModal();
     btn.disabled = true;
     btn.textContent = "終了中...";
     window.__clipgiftInternalNav = true;  // 離脱ダイアログ抑制
@@ -2498,7 +2528,6 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (e) {
       // サーバー終了で接続切れるのは想定内
     }
-    // タブを閉じる試行（window.open で開いたものなら閉じる、ダメな環境ではメッセージ表示）
     try { window.close(); } catch (e) {}
     setTimeout(() => {
       document.body.innerHTML = "<div style='padding:80px;text-align:center;font-size:18px;color:#888;'>クリップギフトを終了しました。<br>このタブは × で閉じてください。</div>";
