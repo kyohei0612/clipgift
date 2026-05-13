@@ -24,26 +24,35 @@ def _client() -> Client:
     return client
 
 
-# ハッシュタグ正規表現（# の後に空白以外が 1 文字以上、改行や , . など終端記号は含めない）
-# 日本語ハッシュタグも拾えるよう、ASCII 制御文字 / スペース / 句読点系を除外
-_HASHTAG_RE = re.compile(r"#([^\s#,.!?。、！？\n]+)")
+# URL とハッシュタグを 1 つの正規表現で順序通りに抽出する。
+# - URL は末尾句読点 ,.!?。、！？)] を含めない（ペースト時に文末記号が引っ付く誤検出を防ぐ）
+# - ハッシュタグは # の後に空白 / 句読点を含まない 1 文字以上
+# 2026-05-13: URL facets 抜けバグ修正（kyohei 報告: 自動投稿の note URL がリンク化されなかった）
+_TOKEN_RE = re.compile(
+    r"(https?://[^\s,.!?。、！？)\]>]+|#[^\s#,.!?。、！？\n]+)"
+)
 
 
 def _build_text_with_facets(text: str):
-    """text 中の #ハッシュタグを atproto の TextBuilder で組み立て、facets 付きで返す。
+    """text 中の URL / #ハッシュタグを atproto の TextBuilder で組み立て、facets 付きで返す。
 
     Bluesky は AT Protocol の仕様で `facets`（リッチテキストの範囲メタ情報）を
-    明示的に渡さないとハッシュタグがリンクとして認識されない（X / Threads と違う）。
+    明示的に渡さないと URL もハッシュタグもリンクとして認識されない
+    （X / Threads は自動検出してくれるので不要）。
     """
     tb = client_utils.TextBuilder()
     last_end = 0
-    for m in _HASHTAG_RE.finditer(text):
-        # ハッシュ前の通常テキスト
+    for m in _TOKEN_RE.finditer(text):
+        # マッチ前の通常テキスト
         if m.start() > last_end:
             tb.text(text[last_end:m.start()])
-        # ハッシュタグ部分（# は表示には含まれるが、tag 値は # を除く）
-        tag_value = m.group(1)
-        tb.tag(m.group(0), tag_value)
+        token = m.group(0)
+        if token.startswith("#"):
+            # ハッシュタグ（# 込みで表示、tag 値は # を除く）
+            tb.tag(token, token[1:])
+        else:
+            # URL（表示テキストと href を同じ URL にする）
+            tb.link(token, token)
         last_end = m.end()
     # 最後のテキスト残り
     if last_end < len(text):
