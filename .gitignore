@@ -51,6 +51,10 @@ src-tauri/Cargo.lock
 src-tauri/build_output.log
 src-tauri/gen/
 
+# root の空 'build' ファイル混入対策（2026-05-21 v2.0.1/v2.0.2 で誤って commit された 0 byte ファイル）
+# どこから出力されたか原因不明だが、auto_update が「ダウンロードしたファイルが空」エラーで止まるので除外
+/build
+
 # ローカルビルドの ClipGift.exe（root に置かれるが setup.iss は src-tauri/target/release から取得するので不要）
 ClipGift.exe
 launcher_window.log
