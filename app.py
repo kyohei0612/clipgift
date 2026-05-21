@@ -206,6 +206,18 @@ def _heartbeat_watchdog():
 # 念のため関数は残してあるが、呼び出さない
 
 
+@app.route('/sw.js')
+def service_worker():
+    # SW を root スコープで配信するため /sw.js から提供（/static/sw.js だとスコープ /static/ に制限される）
+    return send_from_directory(os.path.join(BASE_DIR, "static"), "sw.js", mimetype="application/javascript")
+
+
+@app.route('/manifest.json')
+def manifest():
+    # ルート配信版（/static/manifest.json も同じ内容を返すが、ルート参照のほうが標準的）
+    return send_from_directory(os.path.join(BASE_DIR, "static"), "manifest.json", mimetype="application/manifest+json")
+
+
 @app.route('/favicon.ico')
 def favicon():
     # マルチ解像度 ICO を配信。Chrome --app モードのタスクバーアイコンが
