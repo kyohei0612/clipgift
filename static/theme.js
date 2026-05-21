@@ -6,13 +6,19 @@
 
 (function () {
   function applyTheme(mode) {
-    if (mode === "dark") {
-      document.body.classList.add("dark-mode");
-      document.body.classList.remove("light-mode");
-    } else {
-      document.body.classList.add("light-mode");
-      document.body.classList.remove("dark-mode");
+    const onCls = mode === "dark" ? "dark-mode" : "light-mode";
+    const offCls = mode === "dark" ? "light-mode" : "dark-mode";
+
+    // <html> 要素にも付与（FOUC 防止のため、head 内 inline script と整合させる）
+    document.documentElement.classList.add(onCls);
+    document.documentElement.classList.remove(offCls);
+
+    // <body> にも従来通り（既存 CSS セレクタ互換）
+    if (document.body) {
+      document.body.classList.add(onCls);
+      document.body.classList.remove(offCls);
     }
+
     const btn = document.getElementById("themeToggle");
     if (btn) {
       btn.textContent = mode === "dark" ? "ライトモード" : "ダークモード";

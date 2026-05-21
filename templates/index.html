@@ -7,6 +7,15 @@
     <meta name="theme-color" content="#1C8FED">
     <meta name="application-name" content="ClipGift">
     <script>
+      // FOUC 防止: テーマ class を <html> に最優先実行で付与（DOMContentLoaded を待たない）
+      // これによりページ切替時の「ダーク → ライト」反転チラつきを防ぐ
+      (function () {
+        try {
+          var saved = localStorage.getItem("theme");
+          var mode = saved === "dark" ? "dark" : "light";
+          document.documentElement.classList.add(mode + "-mode");
+        } catch (_) {}
+      })();
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').catch(() => {});
       }
@@ -78,7 +87,7 @@
         --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
       }
 
-      body.light-mode {
+      html.light-mode, body.light-mode {
         --bg: #F8FAFC;
         --bg-gradient: radial-gradient(ellipse at top, #FFFFFF 0%, #F1F5F9 70%);
         --surface: #FFFFFF;
@@ -564,7 +573,7 @@
         white-space: pre-wrap;
         word-break: break-all;
       }
-      body.light-mode .log-console { background: var(--slate-900); color: #6ee7b7; }
+      html.light-mode .log-console, body.light-mode .log-console { background: var(--slate-900); color: #6ee7b7; }
       .log-console::-webkit-scrollbar { width: 4px; }
       .log-console::-webkit-scrollbar-track { background: transparent; }
       .log-console::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
