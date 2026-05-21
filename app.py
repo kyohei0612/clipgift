@@ -208,6 +208,13 @@ def _heartbeat_watchdog():
 
 @app.route('/favicon.ico')
 def favicon():
+    # マルチ解像度 ICO を配信。Chrome --app モードのタスクバーアイコンが
+    # ジャストサイズを選べるようにするため、204 ではなく実ファイルを返す。
+    ico_path = os.path.join(BASE_DIR, "installer_assets", "ClipGiftLog.ico")
+    if not os.path.exists(ico_path):
+        ico_path = os.path.join(BASE_DIR, "ClipGiftLog.ico")
+    if os.path.exists(ico_path):
+        return send_file(ico_path, mimetype="image/x-icon")
     return '', 204
 
 
