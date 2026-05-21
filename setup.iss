@@ -1,5 +1,5 @@
 #define MyAppName "ClipGift"
-#define MyAppVersion "1.0.119"
+#define MyAppVersion "1.0.120"
 #define MyAppPublisher "kyohei"
 #define MyAppExeName "app.py"
 #define PythonInstaller "python-3.10.0-amd64.exe"
@@ -87,6 +87,7 @@ Source: "{#SourceDir}\installer_assets\ClipGiftLog.ico"; DestDir: "{app}"; Flags
 
 ; 起動スクリプト
 Source: "{#SourceDir}\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\launcher_window.py"; DestDir: "{app}"; Flags: ignoreversion
 
 ; エンドユーザー用リカバリスクリプト（auto_update.py のコメントで「除外しない」と明記されている配布対象）
 Source: "{#SourceDir}\scripts\refresh_icon_cache.bat"; DestDir: "{app}\scripts"; Flags: ignoreversion
@@ -106,8 +107,8 @@ Filename: "{tmp}\{#PythonInstaller}"; Parameters: "/quiet InstallAllUsers=0 Prep
 ; Pythonのパスをbin/python_path.txtに記録（pythonw.exeを優先）
 Filename: "cmd.exe"; Parameters: "/c python -c ""import sys,os; p=sys.executable; pw=p.replace('python.exe','pythonw.exe'); exe=pw if os.path.exists(pw) else p; f=open(os.path.join(sys.argv[1],'python_path.txt'),'w'); f.write(exe); f.close()"" ""{app}\bin"""; StatusMsg: "設定を記録中..."; Flags: waituntilterminated runhidden
 
-; 必要なライブラリをpipでインストール
-Filename: "cmd.exe"; Parameters: "/c python -m pip install flask werkzeug pillow numpy requests pytubefix fonttools proglog imageio-ffmpeg cryptography curl_cffi --quiet"; StatusMsg: "必要なライブラリをインストール中..."; Flags: waituntilterminated runhidden
+; 必要なライブラリをpipでインストール（pywebview = WebView2 ベースのデスクトップウィンドウ、Chrome 不要化）
+Filename: "cmd.exe"; Parameters: "/c python -m pip install flask werkzeug pillow numpy requests pytubefix fonttools proglog imageio-ffmpeg cryptography curl_cffi pywebview --quiet"; StatusMsg: "必要なライブラリをインストール中..."; Flags: waituntilterminated runhidden
 
 ; インストール完了後に起動するか聞く
 Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; Description: "今すぐ起動する"; Flags: nowait postinstall skipifsilent

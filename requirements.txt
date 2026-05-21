@@ -14,3 +14,8 @@ curl_cffi>=0.7,<1.0
 
 # ライセンス認証基盤（licensing/）
 cryptography>=42.0,<46.0
+
+# デスクトップウィンドウ（launcher_window.py）
+# - Windows では WebView2 (Edge Chromium) を利用、Chrome 完全不要
+# - 旧 Chrome --app 起動 (v1.0.113 〜 v1.0.119) の後継
+pywebview>=5.0,<6.0

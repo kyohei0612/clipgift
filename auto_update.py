@@ -5,6 +5,7 @@ app.pyからimportして使う
 import os
 import json
 import shutil
+import subprocess
 import threading
 import time
 import logging
@@ -318,6 +319,61 @@ def _cleanup_backups():
             pass
 
 
+def _resolve_python_exe():
+    """bin/python_path.txt から python.exe のフルパスを解決。"""
+    txt_path = os.path.join(BASE_DIR, "bin", "python_path.txt")
+    if os.path.exists(txt_path):
+        try:
+            with open(txt_path, "r", encoding="utf-8") as f:
+                recorded = f.read().strip()
+            # python_path.txt は pythonw.exe を記録してる場合 → python.exe に戻す
+            python_exe = recorded.replace("pythonw.exe", "python.exe")
+            if os.path.exists(python_exe):
+                return python_exe
+            if os.path.exists(recorded):
+                return recorded
+        except Exception:
+            pass
+    return "python"
+
+
+def _sync_pip_packages_from_requirements():
+    """
+    requirements.txt の依存を pip install --user で同期する。
+
+    2026-05-21 新設。auto_update 直後に呼ばれる。
+    既存ユーザーが新依存（pywebview など）を取り損ねるのを防ぐ。
+
+    - --user 指定で global site-packages を汚さない
+    - --upgrade 付きで既存パッケージの version 制約に追従
+    - 失敗してもログ警告のみ、更新自体は成功扱い
+    """
+    req_path = os.path.join(BASE_DIR, "requirements.txt")
+    if not os.path.exists(req_path):
+        return
+
+    python_exe = _resolve_python_exe()
+    creationflags = 0x08000000 if os.name == "nt" else 0
+    try:
+        result = subprocess.run(
+            [python_exe, "-m", "pip", "install", "--user", "-r", req_path, "--quiet"],
+            cwd=BASE_DIR,
+            creationflags=creationflags,
+            timeout=300,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            logger.info("pip sync 完了: requirements.txt の依存をインストール")
+        else:
+            stderr_tail = (result.stderr or "")[-300:]
+            logger.warning("pip sync 失敗 returncode=%s stderr=%s", result.returncode, stderr_tail)
+    except subprocess.TimeoutExpired:
+        logger.warning("pip sync タイムアウト（5分超）")
+    except Exception as e:
+        logger.warning("pip sync エラー: %s", e)
+
+
 def run_update_async():
     """バックグラウンドで更新を実行"""
     def _do_update():
@@ -358,6 +414,15 @@ def run_update_async():
 
             # version.jsonを最後に更新
             _download_file("version.json")
+
+            # 新しい requirements.txt の依存を同期（既存ユーザーが新依存を取り損ねないように）
+            # 2026-05-21 新設。pywebview 等の新依存を auto_update 経由で自動セットアップ。
+            with _update_lock:
+                _update_state["message"] = "依存パッケージを同期中..."
+            try:
+                _sync_pip_packages_from_requirements()
+            except Exception as e:
+                logger.warning("pip sync 例外（更新自体は成功）: %s", e)
 
             # 成功: マーカーと .bak を片付ける
             _clear_update_marker()
