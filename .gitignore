@@ -12,6 +12,8 @@ installer_assets/github_token.txt
 installer_assets/*.exe
 *.bak
 server_start_count.txt
+build_log.txt
+build_err.txt
 __pycache__/
 *.pyc
 .claude/
