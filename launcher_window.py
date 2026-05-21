@@ -25,11 +25,19 @@ ICON_PATH = os.path.join(BASE_DIR, "installer_assets", "ClipGiftLog.ico")
 SERVER_PORT = 5001
 SERVER_URL = f"http://127.0.0.1:{SERVER_PORT}"
 
+_LOG_FILE = os.path.join(BASE_DIR, "launcher_window.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s [launcher] %(message)s",
+    handlers=[
+        logging.FileHandler(_LOG_FILE, mode="a", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 log = logging.getLogger("launcher")
+log.info("===== launcher_window.py start =====")
+log.info(f"sys.executable = {sys.executable}")
+log.info(f"BASE_DIR = {BASE_DIR}")
 
 
 def get_pythonw_path():

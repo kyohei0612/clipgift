@@ -44,3 +44,13 @@ license_server/.wrangler/
 
 # ローカル一時ファイル
 dl_progress.json
+
+# Tauri ビルド成果物（target/ は 100MB+ になる、絶対 commit しない）
+src-tauri/target/
+src-tauri/Cargo.lock
+src-tauri/build_output.log
+src-tauri/gen/
+
+# ローカルビルドの ClipGift.exe（root に置かれるが setup.iss は src-tauri/target/release から取得するので不要）
+ClipGift.exe
+launcher_window.log

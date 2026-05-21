@@ -1,8 +1,9 @@
 #define MyAppName "ClipGift"
-#define MyAppVersion "1.0.120"
+#define MyAppVersion "2.0.1"
 #define MyAppPublisher "kyohei"
-#define MyAppExeName "app.py"
+#define MyAppExeName "ClipGift.exe"
 #define PythonInstaller "python-3.10.0-amd64.exe"
+#define TauriExeSource "src-tauri\target\release\clipgift.exe"
 ; SourcePath は Inno Setup の組込みマクロ（.iss ファイルのあるディレクトリ、末尾 \ 付き）
 ; Copy() で末尾 \ を除去 → 既存の {#SourceDir}\path 形式と互換
 ; これでプロジェクトフォルダ名 / 配置場所が変わっても自動追従する
@@ -85,20 +86,21 @@ Source: "{#SourceDir}\static\*"; DestDir: "{app}\static"; Flags: ignoreversion r
 ; アイコン
 Source: "{#SourceDir}\installer_assets\ClipGiftLog.ico"; DestDir: "{app}"; Flags: ignoreversion
 
-; 起動スクリプト
-Source: "{#SourceDir}\launcher.vbs"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\launcher_window.py"; DestDir: "{app}"; Flags: ignoreversion
+; Tauri 製ネイティブランチャー（v2.0.0 で導入、launcher.vbs + Chrome --app / pywebview の後継）
+; Rust + WebView2 ベース、Flask subprocess を起動して localhost:5001 を表示
+Source: "{#SourceDir}\{#TauriExeSource}"; DestDir: "{app}"; DestName: "ClipGift.exe"; Flags: ignoreversion
 
 ; エンドユーザー用リカバリスクリプト（auto_update.py のコメントで「除外しない」と明記されている配布対象）
 Source: "{#SourceDir}\scripts\refresh_icon_cache.bat"; DestDir: "{app}\scripts"; Flags: ignoreversion
 
 [Icons]
+; v2.0.0: Tauri ClipGift.exe を直接起動。launcher.vbs / Chrome 経路は廃止。
 ; PrivilegesRequired=lowest と整合させるため、ユーザー側のデスクトップ /
 ; スタートメニューに作成する（{commondesktop} だと全ユーザー共通 = 管理者権限必須で
 ; IPersistFile::Save 0x80070005 を起こす）
-Name: "{group}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\ClipGiftLog.ico"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\ClipGift.exe"; IconFilename: "{app}\ClipGiftLog.ico"
 Name: "{group}\アンインストール"; Filename: "{uninstallexe}"
-Name: "{userdesktop}\{#MyAppName}"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; IconFilename: "{app}\ClipGiftLog.ico"
+Name: "{userdesktop}\{#MyAppName}"; Filename: "{app}\ClipGift.exe"; IconFilename: "{app}\ClipGiftLog.ico"
 
 [Run]
 ; Python 3.10をサイレントインストール（すでに入っていてもOK）
@@ -107,8 +109,8 @@ Filename: "{tmp}\{#PythonInstaller}"; Parameters: "/quiet InstallAllUsers=0 Prep
 ; Pythonのパスをbin/python_path.txtに記録（pythonw.exeを優先）
 Filename: "cmd.exe"; Parameters: "/c python -c ""import sys,os; p=sys.executable; pw=p.replace('python.exe','pythonw.exe'); exe=pw if os.path.exists(pw) else p; f=open(os.path.join(sys.argv[1],'python_path.txt'),'w'); f.write(exe); f.close()"" ""{app}\bin"""; StatusMsg: "設定を記録中..."; Flags: waituntilterminated runhidden
 
-; 必要なライブラリをpipでインストール（pywebview = WebView2 ベースのデスクトップウィンドウ、Chrome 不要化）
-Filename: "cmd.exe"; Parameters: "/c python -m pip install flask werkzeug pillow numpy requests pytubefix fonttools proglog imageio-ffmpeg cryptography curl_cffi pywebview --quiet"; StatusMsg: "必要なライブラリをインストール中..."; Flags: waituntilterminated runhidden
+; 必要なライブラリをpipでインストール（v2.0.0 で pywebview 削除、Tauri が WebView2 を直接扱うので不要）
+Filename: "cmd.exe"; Parameters: "/c python -m pip install flask werkzeug pillow numpy requests pytubefix fonttools proglog imageio-ffmpeg cryptography curl_cffi --quiet"; StatusMsg: "必要なライブラリをインストール中..."; Flags: waituntilterminated runhidden
 
-; インストール完了後に起動するか聞く
-Filename: "{sys}\wscript.exe"; Parameters: """{app}\launcher.vbs"""; Description: "今すぐ起動する"; Flags: nowait postinstall skipifsilent
+; インストール完了後に起動するか聞く（Tauri ClipGift.exe を直接起動）
+Filename: "{app}\ClipGift.exe"; Description: "今すぐ起動する"; Flags: nowait postinstall skipifsilent

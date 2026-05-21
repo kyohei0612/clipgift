@@ -46,15 +46,21 @@ if "%BUILD_ONLY%"=="1" goto BUILD
 rem ---------------------------------------------------------
 rem  Normal mode: bump version -> sync setup.iss -> push -> build
 rem ---------------------------------------------------------
-echo [1/5] version.json updating...
+echo [1/6] version.json updating...
 python -c "import json; f=open('version.json','r',encoding='utf-8'); d=json.load(f); f.close(); v=d['version'].split('.'); v[2]=str(int(v[2])+1); d['version']='.'.join(v); f=open('version.json','w',encoding='utf-8'); json.dump(d,f,ensure_ascii=False,indent=2); f.close(); print('new version: '+d['version'])"
 if errorlevel 1 ( echo ERROR: version update failed & pause & exit /b 1 )
 
-echo [2/5] Syncing setup.iss MyAppVersion with version.json...
+echo [2/6] cargo tauri build (Tauri shell, ClipGift.exe を生成)...
+pushd "%~dp0src-tauri"
+cargo tauri build --no-bundle
+if errorlevel 1 ( echo ERROR: cargo tauri build failed & popd & pause & exit /b 1 )
+popd
+
+echo [3/6] Syncing setup.iss MyAppVersion with version.json...
 python sync_setup_version.py
 if errorlevel 1 ( echo ERROR: setup.iss sync failed & pause & exit /b 1 )
 
-echo [3/5] GitHub push...
+echo [4/6] GitHub push...
 git remote set-url origin https://github.com/kyohei0612/clipgift.git
 git add -A
 git commit -m "update"
@@ -66,10 +72,12 @@ rem ---------------------------------------------------------
 rem  Build installer
 rem ---------------------------------------------------------
 if "%BUILD_ONLY%"=="1" (
-    echo [build-only mode] skipping version bump / setup.iss sync / push
+    echo [build-only mode] skipping version bump / cargo build / setup.iss sync / push
     echo [1/1] Building installer...
+    rem build-only でも setup.iss は最新の ClipGift.exe を取り込むので
+    rem 事前に cargo tauri build を済ませておくこと（または --build-only でない通常モードを使う）
 ) else (
-    echo [4/5] Building installer...
+    echo [5/6] Building installer...
 )
 "%ISCC%" "%~dp0setup.iss"
 if errorlevel 1 ( echo ERROR: build failed & pause & exit /b 1 )
@@ -77,7 +85,7 @@ if errorlevel 1 ( echo ERROR: build failed & pause & exit /b 1 )
 if "%BUILD_ONLY%"=="1" (
     echo [build-only mode] Done!
 ) else (
-    echo [5/5] Done!
+    echo [6/6] Done!
 )
 echo Output: %~dp0installer_output\ClipGift_Setup.exe
 pause

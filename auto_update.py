@@ -67,6 +67,9 @@ EXCLUDE_PREFIXES = (
     # サポートセンター kyohei ローカル運用ファイル
     "support_center/incoming/",
     "support_center/.env",
+    # Tauri ソース（2026-05-21 v2.0.0 で導入、エンドユーザーには ClipGift.exe を
+    # インストーラー経由で配布するので Rust ソースは不要）
+    "src-tauri/",
 )
 
 
