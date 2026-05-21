@@ -63,5 +63,36 @@ If Not alreadyRunning Then
     WScript.Sleep 10000
 End If
 
-' Open browser via "cmd /c start" to bypass any flaky ShellExecute behavior under wscript.
-WshShell.Run "cmd.exe /c start """" """ & serverUrl & """", 0, False
+' 2026-05-21: Launch in a standalone app window via Chrome/Edge --app mode.
+' Result: tab-less, URL-bar-less window with its own taskbar icon and Alt+Tab entry.
+' Falls back to the default browser when neither Chrome nor Edge is installed.
+Dim chromePath1, chromePath2, edgePath1, edgePath2
+chromePath1 = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+chromePath2 = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+edgePath1 = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+edgePath2 = "C:\Program Files\Microsoft\Edge\Application\msedge.exe"
+
+Dim browserExe
+browserExe = ""
+If fso.FileExists(chromePath1) Then
+    browserExe = chromePath1
+ElseIf fso.FileExists(chromePath2) Then
+    browserExe = chromePath2
+ElseIf fso.FileExists(edgePath1) Then
+    browserExe = edgePath1
+ElseIf fso.FileExists(edgePath2) Then
+    browserExe = edgePath2
+End If
+
+If browserExe = "" Then
+    ' Fallback: default browser, normal tab open.
+    WshShell.Run "cmd.exe /c start """" """ & serverUrl & """", 0, False
+Else
+    ' Dedicated user data dir keeps the app profile isolated from the user's regular browsing.
+    ' Chrome remembers window position and size across launches via this profile.
+    Dim userDataDir
+    userDataDir = WshShell.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\ClipGift\BrowserProfile"
+    Dim appArgs
+    appArgs = " --app=" & serverUrl & " --user-data-dir=""" & userDataDir & """"
+    WshShell.Run """" & browserExe & """" & appArgs, 1, False
+End If
