@@ -186,8 +186,12 @@
       .topbar-right {
         display: flex;
         align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
         gap: 10px;
       }
+      /* 各ボタンは縮まず・折り返さず（縦書き崩れ防止）。窮屈なら要素ごと次の行へ */
+      .topbar-right > * { flex-shrink: 0; white-space: nowrap; }
 
       #version-badge {
         font-family: var(--mono);
@@ -432,6 +436,28 @@
         background: var(--accent-soft);
       }
       .btn-secondary:disabled { opacity: .4; cursor: not-allowed; }
+
+      /* 終了確認モーダルの「閉じる」= page2 と同じ danger ボタン（page1 に定義が無く素ボタンだった） */
+      .btn-danger {
+        background: var(--error);
+        color: #FFFFFF;
+        border: none;
+        border-radius: var(--radius-sm);
+        font-family: var(--sans);
+        font-weight: 600;
+        font-size: 13px;
+        padding: 10px 20px;
+        cursor: pointer;
+        transition: var(--transition);
+        white-space: nowrap;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+      }
+      .btn-danger:hover {
+        background: #DC2626;
+        box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
+        transform: translateY(-1px);
+      }
+      .btn-danger:active { transform: scale(0.98); }
 
       /* ── 進捗 ── */
       .progress-wrap {
@@ -689,7 +715,7 @@
           <div class="logo-text">Clip<span>Gift</span></div>
         </div>
         <div class="topbar-right">
-          <div id="licenseBadge" style="display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:linear-gradient(135deg,var(--brand-500),var(--brand-600));color:#fff;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(39,154,217,.3);" title="ライセンス情報">
+          <div id="licenseBadge" style="display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:linear-gradient(135deg,var(--brand-500),var(--brand-600));color:#fff;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(39,154,217,.3);white-space:nowrap;line-height:1.1;" title="ライセンス情報">
             <span id="licensePlanLabel">未認証</span>
             <span id="licenseSupportRemaining" style="font-weight:400;font-size:10px;opacity:0.85;"></span>
           </div>
@@ -1709,7 +1735,8 @@
           return;
         }
         badge.style.display = "inline-flex";
-        const label = info.extension_enabled ? `⭐ ${info.plan_label}` : info.plan_label;
+        const rawLabel = (info.plan_label || "ライセンス").replace(/^ClipGift\s+/, "");
+        const label = info.extension_enabled ? `⭐ ${rawLabel}` : rawLabel;
         planLabelEl.textContent = label || "ライセンス";
         if (info.support_remaining_days !== null && info.support_remaining_days !== undefined) {
           const days = info.support_remaining_days;

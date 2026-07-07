@@ -130,16 +130,36 @@ pub fn run() {
             // without blocking the Tauri event loop.
             let app_handle = app.handle().clone();
             std::thread::spawn(move || {
-                let _ = wait_for_server(30);
+                let server_up = wait_for_server(30);
                 let url = WebviewUrl::External(SERVER_URL.parse().expect("valid URL"));
                 let builder = WebviewWindowBuilder::new(&app_handle, "main", url)
                     .title("ClipGift")
                     .inner_size(1280.0, 820.0)
-                    .min_inner_size(900.0, 600.0)
+                    .min_inner_size(1080.0, 640.0)
                     .resizable(true)
                     .center();
                 if let Err(e) = builder.build() {
                     eprintln!("Failed to build window: {}", e);
+                }
+
+                // Flask が終了したら（「閉じる」→ /api/shutdown の os._exit など）
+                // Tauri アプリ本体も終了させる。以前はここが無く、Flask だけ死んで
+                // ウィンドウが真っ白のまま残る（＝アプリが終了しない）バグだった。
+                // 一時的な接続ブレで誤終了しないよう、3 回連続でポートが落ちたら終了する。
+                if server_up {
+                    let mut misses = 0;
+                    loop {
+                        std::thread::sleep(Duration::from_secs(1));
+                        if server_is_up() {
+                            misses = 0;
+                        } else {
+                            misses += 1;
+                            if misses >= 3 {
+                                app_handle.exit(0);
+                                break;
+                            }
+                        }
+                    }
                 }
             });
 

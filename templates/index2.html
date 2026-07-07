@@ -158,8 +158,25 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 36px;
 }
+/* ヘッダ要素は縮まず・折り返さず（縦書き崩れ防止） */
+.page-header button, .page-header #licenseBadge, .page-header #version-badge { flex-shrink: 0; white-space: nowrap; }
+
+/* === page1 と統一したヘッダ（.topbar 構造。戻るだけ page2 に追加） === */
+.topbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 36px; padding: 24px 0 8px; }
+.topbar .logo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.topbar .logo img { height: 44px; width: 44px; object-fit: contain; filter: drop-shadow(0 4px 12px rgba(39,154,217,0.35)); }
+.topbar .logo-text { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: var(--text-primary); }
+.topbar .logo-text span { color: var(--accent); }
+.topbar-right { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.topbar-right > * { flex-shrink: 0; white-space: nowrap; }
+#version-badge { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); letter-spacing: 0.5px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); }
+.btn-ghost { font-family: var(--font-sans); font-size: 12px; font-weight: 500; color: var(--text-secondary); background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 7px 14px; cursor: pointer; transition: var(--transition); letter-spacing: 0.02em; white-space: nowrap; }
+.btn-ghost:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.btn-ghost.back-link { color: var(--text-secondary); text-decoration: none; }
 
 h1 {
   font-size: 22px;
@@ -1288,26 +1305,24 @@ body.is-modal-open.queue-collapsed #queueReopenTab { display: block; }
   </head>
   <body>
     <div class="container">
-      <div class="page-header">
-        <h1>
-          <a href="/" title="トップに戻る" style="display:flex;align-items:center;gap:6px;color:var(--text-secondary);text-decoration:none;font-size:14px;font-weight:500;padding:7px 14px;border:1px solid var(--border);border-radius:999px;transition:var(--transition);background:var(--surface);">
-            <span style="font-size:13px;">←</span>
-            <span>戻る</span>
+      <div class="topbar">
+        <div class="logo">
+          <a href="/" title="トップに戻る" class="btn-ghost back-link" style="display:inline-flex;align-items:center;gap:5px;">
+            <span style="font-size:11px;">←</span><span>戻る</span>
           </a>
           <img src="/static/ClipGiftLog.png" alt="ClipGift">
-          <span class="brand-name">Clip<span class="accent">Gift</span></span>
-          <span class="brand-tag">Analyzer</span>
-        </h1>
-        <div style="display:flex;align-items:center;gap:10px;">
-          <div id="licenseBadge" style="display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:linear-gradient(135deg,var(--brand-500),var(--brand-600));color:#fff;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(39,154,217,.3);" title="ライセンス情報を表示">
+          <div class="logo-text">Clip<span>Gift</span></div>
+        </div>
+        <div class="topbar-right">
+          <div id="licenseBadge" style="display:none;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:linear-gradient(135deg,var(--brand-500),var(--brand-600));color:#fff;font-size:12px;font-weight:600;cursor:pointer;box-shadow:0 2px 8px rgba(39,154,217,.3);white-space:nowrap;line-height:1.1;" title="ライセンス情報">
             <span id="licensePlanLabel">未認証</span>
-            <span id="licenseSupportRemaining" style="font-weight:400;font-size:11px;opacity:0.85;"></span>
+            <span id="licenseSupportRemaining" style="font-weight:400;font-size:10px;opacity:0.85;"></span>
           </div>
-          <div id="version-badge" style="font-family:var(--mono,'JetBrains Mono',monospace);font-size:11px;color:var(--text-muted,#94a3b8);letter-spacing:0.5px;padding:4px 10px;border:1px solid var(--border);border-radius:999px;background:var(--surface);">v-.-.-</div>
-          <button id="updateCheckBtn" type="button" style="font-family:inherit;font-size:12px;font-weight:500;color:var(--text-secondary);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:6px 14px;cursor:pointer;transition:all 0.15s ease;">UPDATE CHECK</button>
-          <button id="themeToggle">ライトモード</button>
-          <button id="errorReportBtn" type="button" title="エラー・不具合を報告する" style="background:transparent;border:1px solid var(--brand-500);color:var(--brand-500);box-shadow:none;font-weight:500;padding:7px 14px;border-radius:999px;font-size:12px;cursor:pointer;transition:all 0.15s ease;">🛠 エラー報告</button>
-          <button id="appCloseBtn" type="button" title="アプリとこのタブを閉じる" style="background:transparent;border:1px solid var(--error);color:var(--error);box-shadow:none;font-weight:500;padding:7px 14px;border-radius:999px;font-size:12px;cursor:pointer;transition:all 0.15s ease;">✕ 閉じる</button>
+          <div id="version-badge">v-.-.-</div>
+          <button class="btn-ghost" onclick="manualCheckUpdate()">UPDATE CHECK</button>
+          <button id="themeToggle" class="btn-ghost" type="button" title="テーマを切り替え">ライトモード</button>
+          <button id="errorReportBtn" type="button" title="エラー・不具合を報告する" style="background:transparent;border:1px solid var(--brand-500);color:var(--brand-500);border-radius:999px;padding:6px 14px;font-size:12px;font-weight:500;box-shadow:none;cursor:pointer;transition:all 0.15s ease;">🛠 エラー報告</button>
+          <button id="appCloseBtn" type="button" title="アプリとこのタブを閉じる" style="background:transparent;border:1px solid var(--error);color:var(--error);border-radius:999px;padding:6px 14px;font-size:12px;font-weight:500;box-shadow:none;cursor:pointer;transition:all 0.15s ease;">✕ 閉じる</button>
         </div>
       </div>
 
@@ -2628,7 +2643,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
 
       badge.style.display = "inline-flex";
-      planLabelEl.textContent = licenseInfo.plan_label || "ライセンス";
+      planLabelEl.textContent = (licenseInfo.plan_label || "ライセンス").replace(/^ClipGift\s+/, "");
 
       if (licenseInfo.support_remaining_days !== null && licenseInfo.support_remaining_days !== undefined) {
         const days = licenseInfo.support_remaining_days;
@@ -2651,7 +2666,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // 拡張機能が使えるならアイコン
       if (licenseInfo.extension_enabled) {
-        planLabelEl.textContent = `⭐ ${licenseInfo.plan_label}`;
+        planLabelEl.textContent = "⭐ " + (licenseInfo.plan_label || "ライセンス").replace(/^ClipGift\s+/, "");
       }
     } catch (err) {
       console.warn("ライセンス情報取得失敗:", err);
