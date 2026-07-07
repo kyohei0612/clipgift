@@ -1112,29 +1112,78 @@ button.btn-danger:disabled {
 /* === モーダル 2 個モデル: 独立した左浮遊キューパネル（2026-05-12 kyohei さん指示）
    既存 queueList とは別物の独立した <aside id="queueFloatPanel"> を body 直下に動的生成
    親 section の display 状態に一切依存しない === */
+:root { --queue-w: 340px; }
 #queueFloatPanel {
   display: none;
   position: fixed;
-  left: 16px;
-  top: 80px;
-  max-height: calc(100vh - 96px);
-  width: min(360px, 30vw);
-  min-width: 240px;
+  right: 0;
+  top: 0;
+  height: 100vh;
+  max-height: 100vh;
+  width: var(--queue-w);
   overflow-y: auto;
   background: var(--surface-elevated);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  border: none;
+  border-left: 1px solid var(--border);
+  border-radius: 0;
+  padding: 16px 14px 24px;
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.22);
   z-index: 998;
   pointer-events: auto;
   text-align: left;
   font-family: var(--font-sans);
+  transform: translateX(0);
+  transition: transform .22s ease;
 }
-body.is-modal-open #queueFloatPanel {
-  display: block;
-  animation: queueFloatIn .18s ease-out;
+body.is-modal-open #queueFloatPanel { display: block; }
+/* ドッキング分だけ本体とモーダルを左へ寄せて重なりを防ぐ */
+body { transition: padding-right .22s ease; }
+#modalOverlay { transition: padding-right .22s ease; }
+body.is-modal-open:not(.queue-collapsed) { padding-right: var(--queue-w); }
+body.is-modal-open:not(.queue-collapsed) #modalOverlay { padding-right: var(--queue-w); }
+/* 折りたたみ: パネルを右外へスライド、本体は全幅へ戻る */
+body.is-modal-open.queue-collapsed #queueFloatPanel { transform: translateX(100%); }
+/* 折りたたみ再オープン用タブ（右端） */
+#queueReopenTab {
+  display: none;
+  position: fixed;
+  right: 0;
+  top: 88px;
+  z-index: 998;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  padding: 12px 7px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  cursor: pointer;
+  box-shadow: -4px 0 14px rgba(0, 0, 0, 0.16);
+  writing-mode: vertical-rl;
+  letter-spacing: 2px;
 }
+body.is-modal-open.queue-collapsed #queueReopenTab { display: block; }
+#queueFloatPanel .qf-header { justify-content: space-between; }
+#queueFloatPanel .qf-collapse {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1px 9px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.2;
+  box-shadow: none;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+#queueFloatPanel .qf-collapse:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+@media (max-width: 1000px) { :root { --queue-w: 280px; } }
 #queueFloatPanel .qf-header {
   font-weight: 700;
   font-size: 13px;
@@ -4972,13 +5021,45 @@ function renderQueueList() {
 // === 独立した「キュー浮遊パネル」(モーダル 2 個モデル) ====================
 // body 直下に <aside id="queueFloatPanel"> を動的生成し、queue 配列から独立して
 // li を render する。既存 queueList とは別物 = 親 section の display 状態に依存しない
+// 折りたたみ再オープン用タブ（右端）を 1 度だけ生成
+function __ensureQueueReopenTab() {
+  let tab = document.getElementById("queueReopenTab");
+  if (tab) return tab;
+  tab = document.createElement("button");
+  tab.id = "queueReopenTab";
+  tab.type = "button";
+  tab.textContent = "📋 キュー";
+  tab.title = "キューを表示";
+  tab.setAttribute("aria-label", "キューを表示");
+  tab.addEventListener("click", () => __setQueueCollapsed(false));
+  document.body.appendChild(tab);
+  return tab;
+}
+
+// キューパネルの折りたたみ状態を切り替え（localStorage に保存）
+function __setQueueCollapsed(collapsed) {
+  __ensureQueueReopenTab();
+  document.body.classList.toggle("queue-collapsed", !!collapsed);
+  try { localStorage.setItem("clipgift_queue_collapsed", collapsed ? "1" : "0"); } catch (_) {}
+}
+window.__setQueueCollapsed = __setQueueCollapsed;
+
 function __ensureQueueFloatPanel() {
+  __ensureQueueReopenTab();
   let panel = document.getElementById("queueFloatPanel");
   if (panel) return panel;
   panel = document.createElement("aside");
   panel.id = "queueFloatPanel";
   panel.setAttribute("aria-label", "キューリスト");
   document.body.appendChild(panel);
+  // 初期折りたたみ状態: 保存値優先、未設定なら狭い窓のときだけ畳む
+  let collapsed = false;
+  try {
+    const saved = localStorage.getItem("clipgift_queue_collapsed");
+    if (saved === "1") collapsed = true;
+    else if (saved === null && window.innerWidth < 1000) collapsed = true;
+  } catch (_) {}
+  document.body.classList.toggle("queue-collapsed", collapsed);
   return panel;
 }
 
@@ -4986,10 +5067,20 @@ function __renderQueueFloatPanel() {
   const panel = __ensureQueueFloatPanel();
   panel.innerHTML = "";
 
-  // ヘッダ
+  // ヘッダ（タイトル + 折りたたみボタン）
   const header = document.createElement("div");
   header.className = "qf-header";
-  header.textContent = "📋 キュー";
+  const headerTitle = document.createElement("span");
+  headerTitle.textContent = "📋 キュー";
+  header.appendChild(headerTitle);
+  const collapseBtn = document.createElement("button");
+  collapseBtn.type = "button";
+  collapseBtn.className = "qf-collapse";
+  collapseBtn.textContent = "›";
+  collapseBtn.title = "キューを隠す";
+  collapseBtn.setAttribute("aria-label", "キューを隠す");
+  collapseBtn.addEventListener("click", () => __setQueueCollapsed(true));
+  header.appendChild(collapseBtn);
   panel.appendChild(header);
 
   const q = (typeof queue !== "undefined" && Array.isArray(queue)) ? queue : [];
