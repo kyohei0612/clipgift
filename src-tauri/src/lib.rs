@@ -149,12 +149,12 @@ pub fn run() {
                 if server_up {
                     let mut misses = 0;
                     loop {
-                        std::thread::sleep(Duration::from_secs(1));
+                        std::thread::sleep(Duration::from_millis(150));
                         if server_is_up() {
                             misses = 0;
                         } else {
                             misses += 1;
-                            if misses >= 3 {
+                            if misses >= 2 {
                                 app_handle.exit(0);
                                 break;
                             }

@@ -2601,18 +2601,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
   okBtn.addEventListener("click", async () => {
     closeModal();
-    btn.disabled = true;
-    btn.textContent = "終了中...";
     window.__clipgiftInternalNav = true;  // 離脱ダイアログ抑制
+    // 右上の × ボタンと同じ体験にする: 終了画面も出さず DOM も触らない（空白化させない）。
+    // Flask を止めるだけ → lib.rs の監視スレッドが停止を検知してウィンドウごと即終了する。
+    // （window.close() は Tauri 窓を閉じず webview を空白化する副作用があるため呼ばない）
     try {
       await fetch("/api/shutdown", { method: "POST" });
     } catch (e) {
-      // サーバー終了で接続切れるのは想定内
+      // サーバー終了で接続が切れるのは想定内
     }
-    try { window.close(); } catch (e) {}
-    setTimeout(() => {
-      document.body.innerHTML = "<div style='padding:80px;text-align:center;font-size:18px;color:#888;'>クリップギフトを終了しました。<br>このタブは × で閉じてください。</div>";
-    }, 600);
   });
 })();
 
