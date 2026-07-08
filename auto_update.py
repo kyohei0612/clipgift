@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import threading
 import time
+import hashlib
 import logging
 import urllib.request
 import urllib.error
@@ -129,31 +130,41 @@ def _read_github_token():
 
 
 def _get_all_files(path=""):
-    """GitHub の git tree API で全ファイルを 1 リクエストで列挙（rate limit 回避）"""
+    """GitHub の git tree API で全ファイルを 1 リクエストで列挙（(path, sha) のタプル）。
+    sha は差分判定（変わってないファイルの取得スキップ）に使う。"""
     url = (
         f"https://api.github.com/repos/"
         f"{GITHUB_OWNER}/{GITHUB_REPO}/git/trees/{GITHUB_BRANCH}?recursive=1"
     )
     data = json.loads(_fetch_url(url).decode("utf-8"))
     return [
-        item["path"]
+        (item["path"], item.get("sha"))
         for item in data.get("tree", [])
         if item.get("type") == "blob"
     ]
 
 
-def _fetch_url(url):
+def _fetch_url(url, _retries=3):
     sep = "&" if "?" in url else "?"
-    url = f"{url}{sep}t={int(time.time())}"
-    req = urllib.request.Request(url)
+    full = f"{url}{sep}t={int(time.time())}"
+    req = urllib.request.Request(full)
     req.add_header("User-Agent", "youtube-clip-tool-updater")
     req.add_header("Cache-Control", "no-cache")
     req.add_header("Pragma", "no-cache")
     token = _read_github_token()
     if token:
         req.add_header("Authorization", f"Bearer {token}")
-    with urllib.request.urlopen(req, timeout=10) as res:
-        return res.read()
+    try:
+        with urllib.request.urlopen(req, timeout=10) as res:
+            return res.read()
+    except urllib.error.HTTPError as e:
+        # 429/403 = レート制限。少し待って再試行（Retry-After があれば尊重、最大30秒）。
+        if e.code in (429, 403) and _retries > 0:
+            ra = e.headers.get("Retry-After") if e.headers else None
+            wait = int(ra) if (ra and str(ra).isdigit()) else 5
+            time.sleep(min(wait, 30))
+            return _fetch_url(url, _retries - 1)
+        raise
 
 
 def get_remote_version():
@@ -174,6 +185,25 @@ def get_local_version():
 
 def _version_tuple(v):
     return tuple(int(x) for x in v.split("."))
+
+
+def _git_blob_sha(path):
+    """
+    ローカルファイルの git blob SHA を計算する。
+
+    GitHub の git tree API が返す各 blob の sha と同じ算出式
+    （sha1("blob " + len + "\\0" + content)）。一致すれば内容が同じ = ダウンロード不要。
+    失敗時は None を返し、呼び出し側は安全側に倒してダウンロードする。
+    """
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        h = hashlib.sha1()
+        h.update(b"blob " + str(len(data)).encode() + b"\0")
+        h.update(data)
+        return h.hexdigest()
+    except Exception:
+        return None
 
 
 def check_update():
@@ -389,13 +419,27 @@ def run_update_async():
             # GitHubのファイル一覧を取得して除外リスト以外を更新
             with _update_lock:
                 _update_state["message"] = "ファイル一覧を取得中..."
-            all_files = _get_all_files()
+            all_items = _get_all_files()
+            all_files = [p for p, _ in all_items]
+            sha_map = {p: s for p, s in all_items}
             files = [f for f in all_files if not _is_excluded(f)]
 
+            skipped = 0
             for i, filepath in enumerate(files):
                 with _update_lock:
-                    _update_state["message"] = f"ダウンロード中: {filepath} ({i+1}/{len(files)})"
+                    _update_state["message"] = f"更新中: {filepath} ({i+1}/{len(files)})"
+                # レート制限(429)回避: ローカルの git blob SHA が GitHub と一致する
+                # ファイル（＝内容が同じ）は取得をスキップする。変わったファイルだけ落とす。
+                local_path = os.path.join(BASE_DIR, filepath.replace("/", os.sep))
+                remote_sha = sha_map.get(filepath)
+                if remote_sha and os.path.exists(local_path) and _git_blob_sha(local_path) == remote_sha:
+                    skipped += 1
+                    continue
                 _download_file(filepath)
+            logger.info(
+                "auto_update: %d 取得 / %d スキップ（差分のみ取得）",
+                len(files) - skipped, skipped,
+            )
 
             # GitHubにないローカルファイルを削除
             with _update_lock:
