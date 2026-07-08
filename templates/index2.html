@@ -2605,14 +2605,20 @@ document.addEventListener("DOMContentLoaded", () => {
   okBtn.addEventListener("click", async () => {
     closeModal();
     window.__clipgiftInternalNav = true;  // 離脱ダイアログ抑制
-    // 右上の × ボタンと同じ体験にする: 終了画面も出さず DOM も触らない（空白化させない）。
-    // Flask を止めるだけ → lib.rs の監視スレッドが停止を検知してウィンドウごと即終了する。
-    // （window.close() は Tauri 窓を閉じず webview を空白化する副作用があるため呼ばない）
+    // Flask を止める → 新 exe(v2.0.6+) は lib.rs の監視スレッドがウィンドウごと即終了する
+    // （このとき下の setTimeout には到達しない＝終了画面は出ず × と同じ即終了）。
+    // window.close() は Tauri 窓を閉じず webview を空白化する副作用があるため呼ばない。
     try {
       await fetch("/api/shutdown", { method: "POST" });
     } catch (e) {
       // サーバー終了で接続が切れるのは想定内
     }
+    // 後方互換: 旧 exe（監視スレッド無し）は窓が残るので、少し待っても閉じていなければ
+    // クリーンな終了画面を出す（真っ黒・無反応を回避、× で閉じてもらう）。
+    setTimeout(() => {
+      document.body.innerHTML =
+        "<div style=\"position:fixed;inset:0;display:flex;flex-direction:column;gap:16px;align-items:center;justify-content:center;background:var(--bg,#0b1220);color:var(--text-secondary,#94a3b8);font-family:sans-serif;font-size:16px;text-align:center;line-height:1.8;\"><div style=\"font-size:36px;\">👋</div>クリップギフトを終了しました。<br>ウィンドウ右上の <b>×</b> で閉じてください。</div>";
+    }, 1100);
   });
 })();
 
