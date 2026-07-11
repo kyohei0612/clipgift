@@ -447,6 +447,30 @@ def download_chat(url, progress_path=None, out_path=None):
 # === youtubeChatdl.py インライン終わり ===
 from pytubefix import YouTube
 
+# --- YouTube bot 検出対策: クライアント順次フォールバック ---
+# pytubefix 既定クライアント（WEB / ANDROID）は YouTube に bot 判定され
+# 「This request was detected as a bot. Use use_po_token=True ...」で失敗することがある。
+# use_po_token=True はコンソールで token 貼り付けを対話要求するため GUI アプリでは使えない。
+# 代わりに po_token 不要で通りやすいクライアントを順に試し、最初に成功したものを使う。
+DL_CLIENTS = ["ANDROID_VR", "IOS", "TV", "MWEB", "WEB_EMBED"]
+
+
+def _create_youtube_with_fallback(url, on_progress_callback=None):
+    """bot 検出を回避するため、複数クライアントを順に試して YouTube オブジェクトを生成する。
+    streams へのアクセスで bot 検出が発火するため、そこまで疎通確認してから返す。"""
+    last_err = None
+    for i, client in enumerate(DL_CLIENTS):
+        try:
+            yt = YouTube(url, client=client, on_progress_callback=on_progress_callback)
+            # bot 検出は streams / player 取得時に発火するので、ここで疎通確認する
+            _ = yt.streams
+            print(f"[INFO] クライアント {client} で接続成功", flush=True)
+            return yt
+        except Exception as e:
+            last_err = e
+            print(f"[WARN] クライアント {client} 失敗（{type(e).__name__}: {e}）、次を試行 {i+1}/{len(DL_CLIENTS)}", flush=True)
+    raise RuntimeError(f"全クライアントで動画取得に失敗しました（最後のエラー: {last_err}）")
+
 # ffmpeg / ffprobe のパス（system_utils で一本化）
 ffmpeg_path = get_ffmpeg_path()
 _BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -516,7 +540,8 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
 
     # 動画DL用コールバック（0〜30%）
     video_cb = make_progress_callback(progress_path, "動画ダウンロード", 0, 30) if progress_path else None
-    yt = YouTube(url, on_progress_callback=video_cb)
+    # bot 検出対策: 複数クライアントを順に試して接続（単一 client 固定だと弾かれることがある）
+    yt = _create_youtube_with_fallback(url, on_progress_callback=video_cb)
 
     title = sanitize_filename(yt.title)[:30]
     print(f"[INFO] タイトル: {yt.title}", flush=True)
