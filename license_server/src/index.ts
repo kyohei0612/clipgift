@@ -7,6 +7,7 @@
  *   POST /deactivate       — マシン解放
  *   POST /admin/issue      — 手動キー発行（Bearer 認証）
  *   POST /admin/revoke     — キー失効（Bearer 認証）
+ *   POST /stripe/webhook   — Stripe サブスク webhook（Phase 2 土台 / 署名検証）
  *   POST /support/report   — エラー報告受付（公開、レート制限あり）
  *   POST /support/notify   — 修正案レビュー依頼通知（Bearer 認証）
  *   POST /support/reply    — ユーザー返信送信（Bearer 認証）
@@ -18,6 +19,7 @@ import { handleActivate } from "./handlers/activate";
 import { handleVerify } from "./handlers/verify";
 import { handleDeactivate } from "./handlers/deactivate";
 import { handleAdminIssue, handleAdminRevoke } from "./handlers/admin";
+import { handleStripeWebhook } from "./handlers/stripe_webhook";
 import {
   handleSupportReport,
   handleSupportNotify,
@@ -75,6 +77,11 @@ export default {
 
       if (url.pathname === "/admin/revoke" && request.method === "POST") {
         return await handleAdminRevoke(request, env);
+      }
+
+      // Phase 2 サブスク土台。STRIPE_WEBHOOK_SECRET 未設定なら 503（眠ったまま）。
+      if (url.pathname === "/stripe/webhook" && request.method === "POST") {
+        return await handleStripeWebhook(request, env);
       }
 
       if (url.pathname === "/support/report" && request.method === "POST") {

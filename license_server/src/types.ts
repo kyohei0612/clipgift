@@ -9,6 +9,20 @@
  */
 export type Plan = "single";
 
+/**
+ * 課金形態。
+ * - "perpetual"    … 買い切り（Phase 1 / 既定）。expires_at = null で無期限。
+ * - "subscription" … サブスク（Phase 2 土台）。Stripe 入金 webhook が
+ *                     expires_at を毎課金で先送りする。未入金 → 期限切れで失効。
+ *
+ * ★ 既存レコードはこのフィールドを持たない → undefined。
+ *   その場合は必ず "perpetual" として扱うこと（billingTypeOf() 経由）。
+ */
+export type BillingType = "perpetual" | "subscription";
+
+/** Stripe サブスクの状態（webhook が同期）。 */
+export type SubscriptionStatus = "active" | "past_due" | "canceled";
+
 export interface Env {
   LICENSES: KVNamespace;
   PRODUCT_PREFIX: string;
@@ -29,6 +43,16 @@ export interface Env {
   // Reply-To: ユーザーが「返信」を押したときに届く先（kyohei さん受信箱）
   // 未指定の場合は SUPPORT_FORWARD_TO を流用
   SUPPORT_REPLY_TO?: string;
+
+  // ─────────────────────────────────────────────────────────────
+  // Phase 2 サブスク土台（すべて任意）。
+  // STRIPE_WEBHOOK_SECRET が未設定なら /stripe/webhook は 503 を返し、
+  // サブスク機能は完全に「眠ったまま」＝Phase 1 の買い切り運用に無影響。
+  // ─────────────────────────────────────────────────────────────
+  /** Stripe webhook 署名検証用（whsec_...）。未設定 = サブスク機能 OFF。 */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /** サブスクの verify ハートビート間隔（日）。既定 3（解約を素早く反映）。 */
+  SUBSCRIPTION_HEARTBEAT_DAYS?: string;
 }
 
 // サポートエンドポイントの型
@@ -94,12 +118,24 @@ export interface LicenseRecord {
   expires_at: string | null;
   status: "unactivated" | "active" | "revoked";
   machines: MachineRecord[];
-  order_source: "booth_auto" | "manual";
+  order_source: "booth_auto" | "manual" | "stripe_subscription";
   order_id: string | null;
   buyer_email: string;
   support_expires_at: string;
   extension_expires_at: string | null;
   notes: string | null;
+
+  // ── Phase 2 サブスク土台（すべて任意）。既存レコードは未設定 = 買い切り扱い。──
+  /** 課金形態。未設定なら "perpetual"（billingTypeOf() で正規化）。 */
+  billing_type?: BillingType;
+  /** Stripe サブスクの状態。webhook が同期。 */
+  subscription_status?: SubscriptionStatus;
+  /** Stripe 顧客 ID（cus_...）。 */
+  stripe_customer_id?: string;
+  /** Stripe サブスク ID（sub_...）。KV の stripe_sub:{id} と対応。 */
+  stripe_subscription_id?: string;
+  /** 現課金期間の末日（ISO）。入金ごとに前進し expires_at と同期する。 */
+  current_period_end?: string;
 }
 
 export interface ActivateRequest {

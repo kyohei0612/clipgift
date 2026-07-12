@@ -2,7 +2,7 @@
  * 共通ユーティリティ: HTTP レスポンスヘルパー、認証、日付計算
  */
 
-import type { Env, ErrorCode, ErrorResponse } from "./types";
+import type { BillingType, Env, ErrorCode, ErrorResponse, LicenseRecord } from "./types";
 
 export function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -77,6 +77,26 @@ export function isoDaysFromNow(days: number): string {
  */
 export function isoNow(): string {
   return new Date().toISOString();
+}
+
+/**
+ * Stripe の unix 秒（number）を ISO 文字列に変換。
+ * 不正値（未定義・NaN）の場合は null を返す。
+ */
+export function isoFromUnixSeconds(seconds: unknown): string | null {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds)) {
+    return null;
+  }
+  return new Date(seconds * 1000).toISOString();
+}
+
+/**
+ * レコードの課金形態を正規化して返す。
+ * 既存の買い切りレコード（billing_type 未設定）は "perpetual" として扱う。
+ * ★ サブスク判定は必ずこの関数を通すこと（undefined を取りこぼさないため）。
+ */
+export function billingTypeOf(record: LicenseRecord): BillingType {
+  return record.billing_type ?? "perpetual";
 }
 
 /**

@@ -14,6 +14,8 @@ PRODUCT_PREFIX = "CGFT"
 MAX_MACHINES = "2"
 OFFLINE_GRACE_DAYS = "30"
 HEARTBEAT_INTERVAL_DAYS = "30"
+# Phase 2 サブスク: サブスクキーの verify 間隔（日）。短くすると解約が早く反映される。
+SUBSCRIPTION_HEARTBEAT_DAYS = "3"
 
 # シークレット（wrangler secret put で登録、コミット禁止）:
 #   HMAC_SECRET                  - キー署名用（32 byte 以上のランダム）
@@ -25,6 +27,12 @@ HEARTBEAT_INTERVAL_DAYS = "30"
 #   SUPPORT_FORWARD_TO           - エラー報告／要望通知の転送先（運営宛）
 #   SUPPORT_FORWARD_TO_REQUEST   - 要望（report_type=request）の対応依頼先
 #   SUPPORT_REPLY_TO             - Reply-To アドレス（任意、未設定なら SUPPORT_FORWARD_TO 流用）
+#
+#   ── Phase 2 サブスク土台（未設定なら /stripe/webhook は 503 で眠ったまま）──
+#   STRIPE_WEBHOOK_SECRET        - Stripe webhook 署名シークレット（whsec_...）。
+#                                  これを設定した瞬間にサブスク機能が起動する。
+#                                  Stripe ダッシュボード → Developers → Webhooks でエンドポイント
+#                                  （https://clipgift-license.<acct>.workers.dev/stripe/webhook）を登録して取得。
 
 [build]
 command = "npm install"

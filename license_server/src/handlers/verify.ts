@@ -13,6 +13,7 @@ import type {
 } from "../types";
 import { generateCredential, validateKey } from "../keys";
 import {
+  billingTypeOf,
   errorResponse,
   isoDaysFromNow,
   isoNow,
@@ -95,7 +96,15 @@ export async function handleVerify(
   await env.LICENSES.put(`key:${body.key}`, JSON.stringify(record));
 
   // 新しい credential を発行
-  const heartbeatDays = parseInt(env.HEARTBEAT_INTERVAL_DAYS, 10);
+  // サブスクは解約を素早く反映するため短いハートビート間隔にする。
+  // （買い切りレコードは billing_type 未設定 → 従来どおり 30 日）
+  let heartbeatDays = parseInt(env.HEARTBEAT_INTERVAL_DAYS, 10);
+  if (billingTypeOf(record) === "subscription") {
+    const subDays = parseInt(env.SUBSCRIPTION_HEARTBEAT_DAYS ?? "3", 10);
+    if (Number.isFinite(subDays) && subDays > 0) {
+      heartbeatDays = subDays;
+    }
+  }
   const nextVerifyAt = isoDaysFromNow(heartbeatDays);
   const machineSlot =
     record.machines.findIndex(
