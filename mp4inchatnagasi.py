@@ -332,6 +332,21 @@ def build_ffmpeg_overlay_filter(overlay_items, video_duration):
     return ";".join(filter_parts), inputs
 
 
+# ffmpeg が h264 デコード時に出す「無害だがエラーに見える」定型警告。
+# 出力には一切影響しないが、ログに大量に出るとユーザーが「エラーだ」と誤解するため
+# ログ表示から除外する（例: Late SEI is not implemented ...）。
+_BENIGN_FFMPEG_NOISE = (
+    "Late SEI is not implemented",
+    "If you want to help, upload a sample",
+    "ffmpeg-devel mailing list",
+)
+
+
+def _is_benign_ffmpeg_noise(line):
+    """出力に影響しない ffmpeg の定型警告行なら True。"""
+    return any(token in line for token in _BENIGN_FFMPEG_NOISE)
+
+
 def run_ffmpeg_with_progress(cmd, progress_path, clip_title, clip_idx, total_frames):
     """ffmpegをsubprocessで実行し、stderrから進捗を読んでファイルに書く"""
     last_written = -1
@@ -345,7 +360,9 @@ def run_ffmpeg_with_progress(cmd, progress_path, clip_title, clip_idx, total_fra
     )
     frame_re = re.compile(r"frame=\s*(\d+)")
     for line in process.stderr:
-        print(line, end="", flush=True)
+        # 無害な定型警告はログに流さない（ユーザーの誤解防止）
+        if not _is_benign_ffmpeg_noise(line):
+            print(line, end="", flush=True)
         m = frame_re.search(line)
         if m and total_frames > 0:
             frame = int(m.group(1))
