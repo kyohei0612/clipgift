@@ -523,6 +523,7 @@ def gen_clip(
     comment_overlay_enabled=True,
     comment_color="white",
     comment_fontsize=DEFAULT_FONTSIZE,
+    comment_density=100,
 ):
     """
     PILで各コメントをPNG画像に書き出し、ffmpegのoverlayフィルタで合成する高速実装。
@@ -547,6 +548,27 @@ def gen_clip(
     else:
         queue = [c for c in comments if start <= c["time"] <= end]
         queue.sort(key=lambda c: c["time"])
+
+    # コメント量の間引き（100% = 元のコメントを全部使う）。
+    #
+    # ランダム抽出にはしない。時間の偏りが崩れて「盛り上がりが盛り上がりに見えない」
+    # ためで、時刻順に一定間隔で残す方式にする。こうすると
+    # 密なところは密なまま、薄いところは薄いまま、全体だけが薄くなる。
+    density = max(1, min(100, int(comment_density or 100)))
+    if density < 100 and queue:
+        ratio = density / 100.0
+        thinned = []
+        acc = 0.0
+        for c in queue:
+            acc += ratio
+            if acc >= 1.0:
+                acc -= 1.0
+                thinned.append(c)
+        print(
+            f"▶ コメント量 {density}%: {len(queue)} 件 → {len(thinned)} 件に間引き",
+            flush=True,
+        )
+        queue = thinned
 
     total_count = len(queue)
     print(f"▶ コメント数: {total_count}件", flush=True)
@@ -801,6 +823,8 @@ def main():
     parser.add_argument("--comment-overlay", dest="comment_overlay", default="true")  # コメント流し ON/OFF（"true"/"false"）
     parser.add_argument("--comment-color", dest="comment_color", default="#FFFFFF")   # コメント色 #RRGGBB
     parser.add_argument("--comment-fontsize", dest="comment_fontsize", type=int, default=DEFAULT_FONTSIZE)  # コメントフォントサイズ px
+    # コメント量（%）。100 = CSV のコメントを全部使う。下げると時刻順に等間隔で間引く
+    parser.add_argument("--comment-density", dest="comment_density", type=int, default=100)
     # --is-last は app.py から渡されておらず、本体でも参照されていない。
     # 外部から叩かれた場合に「unrecognized arguments」で落ちないよう受け口だけ残す。
     parser.add_argument("--is-last", default="False", help=argparse.SUPPRESS)
@@ -879,6 +903,7 @@ def main():
                     comment_overlay_enabled=(args.comment_overlay.strip().lower() == "true"),
                     comment_color=args.comment_color,
                     comment_fontsize=args.comment_fontsize,
+                    comment_density=args.comment_density,
                 )
                 # 多層防御: gen_clip が成功と返しても、実際にファイルが生成されたか念押しで確認する
                 if not os.path.exists(out_file):

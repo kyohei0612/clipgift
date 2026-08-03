@@ -899,6 +899,13 @@ def process_clips():
             _size_int = 50
         comment_fontsize = str(max(20, min(100, _size_int)))
 
+        # コメント量（%）。100 = CSV のコメントを全部使う。範囲外/不正は 100
+        try:
+            _density_int = int(request.form.get("comment_density", "100"))
+        except (TypeError, ValueError):
+            _density_int = 100
+        comment_density = str(max(10, min(100, _density_int)))
+
         downloads_dir = str(Path.home() / "Downloads")
         os.makedirs(downloads_dir, exist_ok=True)
 
@@ -1016,6 +1023,8 @@ def process_clips():
                             comment_color,
                             "--comment-fontsize",
                             comment_fontsize,
+                            "--comment-density",
+                            comment_density,
                         ],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,

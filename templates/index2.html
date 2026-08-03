@@ -1351,11 +1351,10 @@ body.is-modal-open.queue-collapsed #queueReopenTab { display: block; }
         .font-trigger {
           display: inline-flex;
           align-items: center;
-          justify-content: space-between;
-          gap: 10px;
+          justify-content: center;
+          gap: 8px;
           width: fit-content;
-          min-width: 200px;
-          max-width: 280px;
+          min-width: 130px;
           align-self: flex-start;
           padding: 9px 14px;
           background: var(--surface);
@@ -1929,6 +1928,23 @@ body.is-modal-open.queue-collapsed #queueReopenTab { display: block; }
               >
               <input type="hidden" id="commentFontsize" name="comment_fontsize" value="50">
             </div>
+            <div class="font-modal-style-col">
+              <label for="commentDensitySlider">
+                コメント量 <span id="commentDensityLabel">100</span> %
+              </label>
+              <input
+                type="range"
+                id="commentDensitySlider"
+                min="10"
+                max="100"
+                step="5"
+                value="100"
+              >
+              <small class="font-modal-sub" id="commentDensityHint">
+                100% = チャットのコメントを全部流します
+              </small>
+              <input type="hidden" id="commentDensity" name="comment_density" value="100">
+            </div>
           </div>
           <div class="font-modal-list-wrapper">
             <ul
@@ -2370,7 +2386,6 @@ body.is-modal-open.queue-collapsed #queueReopenTab { display: block; }
               >
                 <span class="font-trigger-icon" aria-hidden="true">⚙</span>
                 <span class="font-trigger-main">詳細設定</span>
-                <span class="font-trigger-label" id="fontTriggerLabel"></span>
               </button>
             </div>
             <input type="hidden" id="fontSelect" name="font_name" value="">
@@ -3828,6 +3843,8 @@ document.addEventListener("DOMContentLoaded", () => {
       formData.append("comment_color", _commentColor ? _commentColor.value : "#FFFFFF");
       formData.append("comment_fontsize", _commentFontsize ? _commentFontsize.value : "50");
       formData.append("comment_overlay_enabled", _commentOverlay ? _commentOverlay.value : "true");
+      const _commentDensity = document.getElementById("commentDensity");
+      formData.append("comment_density", _commentDensity ? _commentDensity.value : "100");
 
       const res = await fetchWithRetry("/process_clips", {
         method: "POST",
@@ -4087,9 +4104,11 @@ const FontModal = (() => {
   const FAV_KEY = "clipgift.fontFavorites.v1";
   const COLOR_KEY = "clipgift.commentColor.v1";
   const SIZE_KEY = "clipgift.commentFontsize.v1";
+  const DENSITY_KEY = "clipgift.commentDensity.v1";
   const DEFAULT_SAMPLE = "あいうえお Welcome 12345";
   const DEFAULT_COLOR = "#FFFFFF";
   const DEFAULT_SIZE = 50;
+  const DEFAULT_DENSITY = 100;
   // 想定動画幅。Canvas のプレビューフォントサイズを動画上の見た目に近づけるために使う。
   const ASSUMED_VIDEO_WIDTH = 1920;
 
@@ -4105,6 +4124,7 @@ const FontModal = (() => {
   let isOpen = false;
   let currentColor = DEFAULT_COLOR;
   let currentSize = DEFAULT_SIZE;
+  let currentDensity = DEFAULT_DENSITY;
 
   function loadFavorites() {
     try {
@@ -4470,6 +4490,10 @@ const FontModal = (() => {
       const s = parseInt(localStorage.getItem(SIZE_KEY), 10);
       if (Number.isFinite(s) && s >= 20 && s <= 100) currentSize = s;
     } catch (_) {}
+    try {
+      const d = parseInt(localStorage.getItem(DENSITY_KEY), 10);
+      if (Number.isFinite(d) && d >= 10 && d <= 100) currentDensity = d;
+    } catch (_) {}
   }
 
   function saveStylePrefs() {
@@ -4509,10 +4533,31 @@ const FontModal = (() => {
     PreviewCanvas.setSize(s);
   }
 
+  /** コメント量（%）。100 = チャットのコメントを全部流す。
+      下げると mp4inchatnagasi 側で時刻順に等間隔で間引かれる（偏りを崩さない）。 */
+  function applyDensity(value) {
+    const d = Math.max(10, Math.min(100, parseInt(value, 10) || 100));
+    currentDensity = d;
+    const hidden = document.getElementById("commentDensity");
+    if (hidden) hidden.value = String(d);
+    const slider = document.getElementById("commentDensitySlider");
+    if (slider && parseInt(slider.value, 10) !== d) slider.value = String(d);
+    const label = document.getElementById("commentDensityLabel");
+    if (label) label.textContent = String(d);
+    const hint = document.getElementById("commentDensityHint");
+    if (hint) {
+      hint.textContent = d >= 100
+        ? "100% = チャットのコメントを全部流します"
+        : `コメントを約 ${d}% に間引いて流します`;
+    }
+    try { localStorage.setItem(DENSITY_KEY, String(d)); } catch (_) {}
+  }
+
   function initStyleControls() {
     loadStylePrefs();
     applyColor(currentColor);
     applySize(currentSize);
+    applyDensity(currentDensity);
     document.querySelectorAll(".color-swatch").forEach((btn) => {
       btn.addEventListener("click", () => {
         const c = btn.dataset.color;
@@ -4529,6 +4574,12 @@ const FontModal = (() => {
     if (slider) {
       slider.addEventListener("input", () => {
         applySize(slider.value);
+      });
+    }
+    const densitySlider = document.getElementById("commentDensitySlider");
+    if (densitySlider) {
+      densitySlider.addEventListener("input", () => {
+        applyDensity(densitySlider.value);
       });
     }
   }
@@ -5500,6 +5551,8 @@ function startDownload() {
   formData.append("comment_color", _commentColor2 ? _commentColor2.value : "#FFFFFF");
   formData.append("comment_fontsize", _commentFontsize2 ? _commentFontsize2.value : "50");
   formData.append("comment_overlay_enabled", _commentOverlay2 ? _commentOverlay2.value : "true");
+  const _commentDensity2 = document.getElementById("commentDensity");
+  formData.append("comment_density", _commentDensity2 ? _commentDensity2.value : "100");
 
   fetch("/process_clips", { method: "POST", body: formData })
     .then((res) => {
