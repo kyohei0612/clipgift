@@ -19,7 +19,7 @@ import shutil
 import subprocess
 from typing import Optional
 
-from downloader import safe_write_json
+from downloader import WAVEFORM_TIMEOUT_SEC, safe_write_json
 from system_utils import get_ffmpeg_path, get_ffprobe_path
 from twitch_chat import (
     extract_twitch_video_id,
@@ -40,9 +40,15 @@ def download_twitch_video(
     output_folder: str,
     title: str,
     progress_path: Optional[str] = None,
+    max_resolution: int = 1080,
 ) -> str:
     """
-    自前 HLS ダウンローダーで Twitch VOD を取得（1080p 優先、yt-dlp 非依存）
+    自前 HLS ダウンローダーで Twitch VOD を取得（yt-dlp 非依存）
+
+    max_resolution は UI の画質選択がそのまま届く。
+    旧実装は 1080 をハードコードしており、**UI で 480p を選んでも 1080p で
+    落ちてきていた**（downloader.py の Twitch 分岐が max_resolution を
+    渡しておらず、受け側も引数を持っていなかった）。
 
     Returns:
         出力ファイルパス
@@ -66,10 +72,11 @@ def download_twitch_video(
                 "phase": "動画ダウンロード",
             })
 
+    # 9999 は UI の「自動＝最高画質」センチネル。Twitch 側は上限として扱う。
     download_twitch_video_native(
         video_id,
         output_file,
-        max_height=1080,
+        max_height=max_resolution,
         progress_callback=_on_segment_progress,
     )
 
@@ -125,7 +132,10 @@ def _generate_waveform(mp4_path: str, title_folder: str, progress_path: Optional
             "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
             wav_path,
         ]
-        subprocess.run(cmd_wav, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(
+            cmd_wav, check=True, timeout=WAVEFORM_TIMEOUT_SEC,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
 
         cmd_probe = [
             ffprobe_path, "-i", mp4_path,
@@ -133,7 +143,8 @@ def _generate_waveform(mp4_path: str, title_folder: str, progress_path: Optional
             "-v", "quiet", "-of", "csv=p=0",
         ]
         duration_output = subprocess.check_output(
-            cmd_probe, creationflags=subprocess.CREATE_NO_WINDOW
+            cmd_probe, timeout=WAVEFORM_TIMEOUT_SEC,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         ).decode("utf-8", errors="replace").strip()
         duration_sec = int(float(duration_output))
         print(f"[INFO] 動画長さ: {duration_sec} 秒", flush=True)
@@ -144,7 +155,7 @@ def _generate_waveform(mp4_path: str, title_folder: str, progress_path: Optional
             "--pixels-per-second", str(pps), "--bits", "8",
         ]
         result = subprocess.run(
-            cmd_json, check=True, capture_output=True,
+            cmd_json, check=True, capture_output=True, timeout=WAVEFORM_TIMEOUT_SEC,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
         if result.stderr:
@@ -162,7 +173,8 @@ def _generate_waveform(mp4_path: str, title_folder: str, progress_path: Optional
 
 
 def download_video_and_chat_twitch(
-    url: str, base_output_folder: str, progress_path: str
+    url: str, base_output_folder: str, progress_path: str,
+    max_resolution: int = 1080,
 ) -> None:
     """
     Twitch VOD の動画 + チャットを取得してフォルダに保存
@@ -188,14 +200,32 @@ def download_video_and_chat_twitch(
     title = fetch_twitch_video_title(video_id)
     print(f"[INFO] タイトル: {title}", flush=True)
 
+    # 既存フォルダの扱いは downloader.py（YouTube 側）と同じ方針に揃える。
+    # 旧コードは無条件 rmtree で、同じ配信者が同じタイトルで配信していると
+    # **前回 DL した動画・チャット・波形が消えていた**（未クリップなら復旧不能）。
+    # 完成品が残っている場合は消さずに連番フォルダへ退避する。
     title_folder = os.path.join(output_folder, title)
     if os.path.exists(title_folder):
-        shutil.rmtree(title_folder)
-        print(f"[INFO] 既存フォルダを削除して再ダウンロード: {title_folder}", flush=True)
+        if os.path.exists(os.path.join(title_folder, f"{title}.mp4")):
+            base_folder = title_folder
+            counter = 1
+            while os.path.exists(title_folder):
+                title_folder = f"{base_folder}({counter})"
+                counter += 1
+            print(
+                f"[INFO] 既存のダウンロード済みフォルダを保護し、別フォルダに保存します: {title_folder}",
+                flush=True,
+            )
+        else:
+            shutil.rmtree(title_folder)
+            print(f"[INFO] 未完了の残骸を削除して再ダウンロード: {title_folder}", flush=True)
     os.makedirs(title_folder, exist_ok=True)
 
     # 動画ダウンロード（0〜45%、自前 HLS ダウンローダー使用）
-    download_twitch_video(video_id, title_folder, title, progress_path=progress_path)
+    download_twitch_video(
+        video_id, title_folder, title,
+        progress_path=progress_path, max_resolution=max_resolution,
+    )
 
     # チャット取得（45〜80%）
     safe_write_json(progress_path, {

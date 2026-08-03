@@ -119,16 +119,22 @@ def get_python_exe():
 
 def cleanup_temp_files_and_dirs():
     """
-    不要な一時ファイル・ディレクトリをすべて削除（clipgen_*系や .mp3 / .wav など）。
+    ClipGift が %TEMP% に残した一時ファイル・ディレクトリを削除する。
+
+    ⚠️ 対象は自分が作ったものだけに限定すること。
+    以前は "*.json" / "*.tmp" / "*.mp3" / "*.wav" というワイルドカードで
+    %TEMP% 配下を無差別に消しており、他アプリの作業中ファイルまで巻き込んでいた。
+    同時に、自分が作る mp4chat_* ディレクトリは対象外で消し残っていた。
+
+    ClipGift が %TEMP% に作るもの（プレフィックスで全網羅）:
+      - clipgen_*      : app.py の mkdtemp / 音声キャッシュ mp3 / mkstemp の入力動画
+      - mp4chat_*      : mp4inchatnagasi.py の PNG 書き出しディレクトリ
     """
     temp_root = tempfile.gettempdir()
 
     patterns = [
         os.path.join(temp_root, "clipgen_*"),
-        os.path.join(temp_root, "*.mp3"),
-        os.path.join(temp_root, "*.wav"),
-        os.path.join(temp_root, "*.tmp"),
-        os.path.join(temp_root, "*.json"),
+        os.path.join(temp_root, "mp4chat_*"),
     ]
 
     deleted_count = 0

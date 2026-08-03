@@ -51,6 +51,15 @@ POLL_INTERVAL_SECONDS = 5
 PENDING_URL_PATH = "/support/pending"
 PROCESSED_URL_PATH_TEMPLATE = "/support/processed/{trigger_id}"
 
+# 取得失敗が続いたときのバックオフ（Workers 障害時に 5 秒間隔で叩き続けない）
+FAILURES_BEFORE_BACKOFF = 5
+BACKOFF_SECONDS = 30
+
+# 同じトリガーを何回まで処理し直すか。
+# 再試行しないと失敗が取り残される（下の main 参照）が、無限に再試行すると
+# 直らないトリガー 1 件で Claude を 5 秒おきに起動し続けることになる。
+MAX_TRIGGER_ATTEMPTS = 3
+
 
 # ────────────────────────────────────────────────────────────
 # 終了ハンドリング
@@ -431,13 +440,16 @@ def _process_trigger(trigger: dict[str, Any]) -> bool:
 # ────────────────────────────────────────────────────────────
 
 
-def _fetch_pending(since: str = "") -> tuple[list[dict[str, Any]], str]:
+def _fetch_pending(since: str = "") -> tuple[list[dict[str, Any]], str, bool]:
     """Workers から未処理トリガー一覧を取得。
 
     since パラメータで前回の queue_marker を渡すことで、Workers 側が
     marker 一致ならスキップ（KV LIST せず空配列返す）= KV 操作を節約。
 
-    Returns: (triggers, marker)
+    Returns: (triggers, marker, ok)
+        ok=False は「取得に失敗した」。**「新着なし」と区別できるようにするため**に
+        返す（旧実装は両方 ([], since) を返しており、呼び出し側が失敗を検知できず
+        バックオフが一度も働かなかった）。
     """
     url = SupportConfig.WORKERS_ENDPOINT.rstrip("/") + PENDING_URL_PATH
     if since:
@@ -449,10 +461,24 @@ def _fetch_pending(since: str = "") -> tuple[list[dict[str, Any]], str]:
         resp = requests.get(url, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
-        return data.get("triggers", []), data.get("marker", "")
     except requests.RequestException as e:
         logger.warning("pending 取得失敗: %s", e)
-        return [], since
+        return [], since, False
+    except ValueError as e:
+        # resp.json() のデコード失敗。2xx でも Cloudflare が HTML を返すことがある。
+        # ここを捕まえないと main ループごと例外で落ちる = watcher が黙って死ぬ
+        #（タスクは logon/boot 起動のみなので、落ちたまま朝まで気付けない）
+        logger.warning("pending 応答が JSON ではありません: %s", e)
+        return [], since, False
+
+    if not isinstance(data, dict):
+        logger.warning("pending 応答の形式が不正です: %r", str(data)[:120])
+        return [], since, False
+    triggers = data.get("triggers") or []
+    if not isinstance(triggers, list):
+        logger.warning("triggers が配列ではありません: %r", str(triggers)[:120])
+        return [], since, False
+    return triggers, data.get("marker", ""), True
 
 
 def _mark_processed(trigger_id: str) -> bool:
@@ -508,28 +534,80 @@ def main() -> int:
     # 起動直後 1 回は Workers 側で LIST 経路を通り、既存 pending を回収できる。
     last_marker = "__init__"
     consecutive_failures = 0
-    while not _shutdown_requested:
-        triggers, marker = _fetch_pending(since=last_marker)
-        last_marker = marker
+    # trigger_id → 失敗回数。上限に達したら諦めて processed にする（下記参照）
+    failure_counts: dict[str, int] = {}
 
-        if triggers:
-            logger.info("検知トリガー数: %d", len(triggers))
-            for trig in triggers:
-                tid = trig.get("id", "")
-                if not tid:
-                    continue
-                ok = _process_trigger(trig)
-                if ok:
-                    _mark_processed(tid)
-            consecutive_failures = 0
-        else:
-            # 連続失敗時はバックオフ（最大 30 秒）
-            if consecutive_failures > 5:
-                time.sleep(min(POLL_INTERVAL_SECONDS * 6, 30))
-                continue
+    while not _shutdown_requested:
+        sleep_seconds = POLL_INTERVAL_SECONDS
+        try:
+            triggers, marker, fetch_ok = _fetch_pending(since=last_marker)
+
+            if not fetch_ok:
+                consecutive_failures += 1
+                if consecutive_failures > FAILURES_BEFORE_BACKOFF:
+                    sleep_seconds = BACKOFF_SECONDS
+                    logger.warning(
+                        "取得失敗が %d 回続いています。%d 秒間隔に落とします",
+                        consecutive_failures,
+                        sleep_seconds,
+                    )
+            else:
+                consecutive_failures = 0
+
+                # ⚠️ last_marker は「全件片付いたときだけ」進める。
+                # 旧実装は取得直後に無条件で last_marker = marker としていたため、
+                # 処理に失敗した（= processed を送っていない）トリガーが残っていても
+                # 次回 poll では since == marker となり Workers が cheap path で
+                # 0 件を返す。結果、**失敗したトリガーは次の受信が来るまで
+                # 永久に取り残されていた**。
+                all_done = True
+                if triggers:
+                    logger.info("検知トリガー数: %d", len(triggers))
+                    for trig in triggers:
+                        tid = trig.get("id", "")
+                        if not tid:
+                            continue
+                        ok = _process_trigger(trig)
+                        if ok and _mark_processed(tid):
+                            failure_counts.pop(tid, None)
+                            continue
+
+                        # 失敗した。次の poll で再取得されるよう marker は進めない。
+                        # ただし永久リトライは危険（1 件ごとに Claude を起動するため、
+                        # 直らない trigger があると 5 秒おきに Claude を叩き続ける）。
+                        # 上限回数で諦めて processed にし、state.json は手動対応用に残す。
+                        n = failure_counts.get(tid, 0) + 1
+                        failure_counts[tid] = n
+                        if n >= MAX_TRIGGER_ATTEMPTS:
+                            logger.error(
+                                "トリガー id=%s が %d 回失敗したため諦めます"
+                                "（processed 化。state.json を見て手動対応してください）",
+                                tid,
+                                n,
+                            )
+                            _mark_processed(tid)
+                            failure_counts.pop(tid, None)
+                        else:
+                            logger.warning(
+                                "トリガー id=%s 失敗（%d/%d）。次回 poll で再試行します",
+                                tid,
+                                n,
+                                MAX_TRIGGER_ATTEMPTS,
+                            )
+                            all_done = False
+
+                if all_done:
+                    last_marker = marker
+
+        except Exception:
+            # ここで飲まないと watcher プロセスが落ちる。
+            # スケジュールタスクは logon / boot 起動のみなので、
+            # 落ちたら次のログオンまで復帰しない。ループは絶対に維持する。
+            logger.exception("poll ループで予期せぬ例外（継続します）")
+            consecutive_failures += 1
 
         # シャットダウン要求対応のため細かく寝る
-        for _ in range(POLL_INTERVAL_SECONDS):
+        for _ in range(sleep_seconds):
             if _shutdown_requested:
                 break
             time.sleep(1)

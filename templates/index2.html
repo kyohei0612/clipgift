@@ -2489,6 +2489,24 @@ const toggleBtn = document.getElementById("themeToggle");
 
 // 🎨 テーマ管理は /static/theme.js（共通）に移管。ここでは何もしない。
 
+/**
+ * innerHTML に文字列を差し込む前に必ず通す。
+ *
+ * キュー一覧はクリップ名を innerHTML のテンプレートリテラルに直接埋めている。
+ * クリップ名は**ユーザーが自由入力できる**ので、`<` や `&` が入ると
+ * その行のレイアウトが崩れる（タグとして解釈される）。
+ * ローカルアプリなので攻撃者＝本人だが、`A<B` のような題名を打っただけで
+ * 表示が壊れて原因が分からない、という事故になる。
+ */
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 let chatPath = "",
   videoPath = "",
   currentClipStart = 0,
@@ -3592,7 +3610,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (li) {
           li.innerHTML = `
           <div class="status">⏸️ 未処理</div>
-          <div><strong>${clip.title}</strong></div>
+          <div><strong>${escapeHtml(clip.title)}</strong></div>
           <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
         `;
         }
@@ -3647,7 +3665,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (li) {
           li.innerHTML = `
       <div class="status done">✅ すでに完了済み</div>
-      <div><strong>${clip.title}</strong></div>
+      <div><strong>${escapeHtml(clip.title)}</strong></div>
       <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
       `;
         }
@@ -3665,7 +3683,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!li) return;
       li.innerHTML = `
       <div class="status">⏳ 待機中 (${i + 1}/${pendingClips.length})</div>
-      <div><strong>${clip.title}</strong></div>
+      <div><strong>${escapeHtml(clip.title)}</strong></div>
       <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
       <div class="progress-bar"><div class="progress-bar-inner"></div></div>
       <div class="progress-text">0%</div>
@@ -3770,7 +3788,7 @@ document.addEventListener("DOMContentLoaded", () => {
               if (li) {
                 li.innerHTML = `
                 <div class="status" style="color: orange;">⏸️ キャンセルされました</div>
-                <div><strong>${clip.title}</strong></div>
+                <div><strong>${escapeHtml(clip.title)}</strong></div>
                 <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
                 `;
               }
@@ -3795,7 +3813,7 @@ document.addEventListener("DOMContentLoaded", () => {
               if (li) {
                 li.innerHTML = `
                 <div class="status" style="color:#dc2626;font-weight:bold;">❌ 失敗（再 DL 可能）</div>
-                <div><strong>${clip.title}</strong></div>
+                <div><strong>${escapeHtml(clip.title)}</strong></div>
                 <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
                 `;
               }
@@ -3822,7 +3840,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (li) {
               li.innerHTML = `
               <div class="status done">✅ 完了</div>
-              <div><strong>${clip.title}</strong></div>
+              <div><strong>${escapeHtml(clip.title)}</strong></div>
               <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
               `;
             }
@@ -3833,7 +3851,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (newLi) {
               newLi.innerHTML = `
               <div class="status">⬇️ 処理中 (${currentIdx + 1}/${pendingClips.length})</div>
-              <div><strong>${newClip.title}</strong></div>
+              <div><strong>${escapeHtml(newClip.title)}</strong></div>
               <div>${formatTime(newClip.startSec)} ～ ${formatTime(newClip.endSec)} の時間が取れました</div>
               <div class="progress-bar"><div class="progress-bar-inner" style="width:0%"></div></div>
               <div class="progress-text">0%</div>
@@ -3867,7 +3885,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (li) {
               li.innerHTML = `
               <div class="status done">✅ 完了</div>
-              <div><strong>${clip.title}</strong></div>
+              <div><strong>${escapeHtml(clip.title)}</strong></div>
               <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
               `;
             }
@@ -3884,8 +3902,8 @@ document.addEventListener("DOMContentLoaded", () => {
           const li = document.getElementById(`queue-item-${clip.id}`);
           if (li) {
             li.innerHTML = `
-            <div class="status" style="color:red;">❌ 失敗: ${e.message}</div>
-            <div><strong>${clip.title}</strong></div>
+            <div class="status" style="color:red;">❌ 失敗: ${escapeHtml(e.message)}</div>
+            <div><strong>${escapeHtml(clip.title)}</strong></div>
             <div>${formatTime(clip.startSec)} ～ ${formatTime(clip.endSec)} の時間が取れました</div>
             `;
           }
@@ -5538,9 +5556,28 @@ const WAVEFORM_VIEW_DURATION = 30;
 
 async function attachWaveform(jsonUrl, clipStart, clipEnd) {
   const video = document.getElementById("videoPlayer");
+  const container = document.getElementById("waveform-container");
   if (peaksInstance) {
     peaksInstance.destroy();
-    document.getElementById("waveform-container").innerHTML = "";
+    container.innerHTML = "";
+  }
+
+  // Peaks.js は CDN (cdnjs) から読んでいる。ClipGift はローカルで動くデスクトップ
+  // アプリなので、オフライン / CDN 障害 / 社内プロキシで遮断、のいずれでも
+  // window.peaks が undefined になる。
+  // 旧コードは無防備に window.peaks.init() を呼んでいて TypeError になり、
+  // 呼び出し側の try/catch が握り潰すため **波形が出ない理由が画面に何も出なかった**。
+  if (!window.peaks || typeof window.peaks.init !== "function") {
+    console.warn("Peaks.js が読み込まれていません（オフライン / CDN 遮断の可能性）");
+    if (container) {
+      container.innerHTML =
+        '<div style="padding:12px;font-size:13px;opacity:.75;line-height:1.6">' +
+        "⚠️ 波形ライブラリを読み込めませんでした。<br>" +
+        "インターネットに接続していない場合、波形は表示されません" +
+        "（クリップの作成自体は問題なく行えます）。" +
+        "</div>";
+    }
+    throw new Error("Peaks.js 未ロード");
   }
 
   const options = {

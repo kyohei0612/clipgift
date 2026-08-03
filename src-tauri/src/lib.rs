@@ -142,22 +142,47 @@ pub fn run() {
                     eprintln!("Failed to build window: {}", e);
                 }
 
+                if !server_up {
+                    // 30 秒待っても Flask が上がらなかった場合。
+                    // 旧コードはここで何もせず、**真っ白なウィンドウだけが残っていた**
+                    // （監視ループにも入らないので、アプリは終了もしない）。
+                    // 原因がユーザーに一切伝わらないので、最低限の案内を出す。
+                    eprintln!("Flask backend did not start within 30s");
+                    if let Some(win) = app_handle.get_webview_window("main") {
+                        let _ = win.eval(
+                            "document.body.innerHTML = '<div style=\"font-family:sans-serif;padding:40px;line-height:1.9\">\
+<h2>起動に失敗しました</h2>\
+<p>ClipGift の内部サーバーを開始できませんでした。</p>\
+<p>お手数ですが、一度ウィンドウを閉じてからもう一度起動してください。<br>\
+それでも直らない場合は、インストーラーを再実行すると回復することがあります。</p>\
+<p style=\"opacity:.6;font-size:13px\">解決しない場合は support@clipgift.org までご連絡ください。</p>\
+</div>'",
+                        );
+                    }
+                    return;
+                }
+
                 // Flask が終了したら（「閉じる」→ /api/shutdown の os._exit など）
                 // Tauri アプリ本体も終了させる。以前はここが無く、Flask だけ死んで
                 // ウィンドウが真っ白のまま残る（＝アプリが終了しない）バグだった。
-                // 一時的な接続ブレで誤終了しないよう、3 回連続でポートが落ちたら終了する。
-                if server_up {
-                    let mut misses = 0;
-                    loop {
-                        std::thread::sleep(Duration::from_millis(150));
-                        if server_is_up() {
-                            misses = 0;
-                        } else {
-                            misses += 1;
-                            if misses >= 2 {
-                                app_handle.exit(0);
-                                break;
-                            }
+                //
+                // 誤終了しない猶予について:
+                //   コメントは「3 回連続」と書いてあるのに実装は misses >= 2 で、
+                //   150ms × 2 = **300ms 落ちただけでアプリを終了**していた。
+                //   クリップ生成中は Flask が重く、接続が一瞬詰まることがあるため短すぎる。
+                //   判定間隔と回数を実態に合わせ、約 3 秒の猶予を持たせる。
+                const POLL_INTERVAL_MS: u64 = 500;
+                const MISSES_BEFORE_EXIT: u32 = 6; // 500ms × 6 = 約 3 秒
+                let mut misses: u32 = 0;
+                loop {
+                    std::thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+                    if server_is_up() {
+                        misses = 0;
+                    } else {
+                        misses += 1;
+                        if misses >= MISSES_BEFORE_EXIT {
+                            app_handle.exit(0);
+                            break;
                         }
                     }
                 }

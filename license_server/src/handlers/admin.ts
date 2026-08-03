@@ -123,13 +123,33 @@ export async function handleAdminIssue(
     );
   }
   // 同一購入者の複数キーも追跡（不正検知用）
-  const emailHash = await sha256Hex(body.buyer_email.toLowerCase());
-  const existingEmailKeys = await env.LICENSES.get(`email:${emailHash}`);
-  const emailKeyList = existingEmailKeys
-    ? (JSON.parse(existingEmailKeys) as string[])
-    : [];
-  emailKeyList.push(key);
-  await env.LICENSES.put(`email:${emailHash}`, JSON.stringify(emailKeyList));
+  //
+  // ⚠️ ここは「キーを KV に保存し終えた後」なので、例外を投げてはいけない。
+  // 旧コードは JSON.parse が無防備で、email リストが壊れていると 500 になった。
+  // 呼び出し側（scripts/issue_license.py）は失敗と判断して再実行し、
+  // order_id なしの手動発行では重複チェックも効かないため **キーが二重発行される**。
+  // 追跡情報は補助データなので、壊れていても発行そのものは成功させる。
+  try {
+    const emailHash = await sha256Hex(body.buyer_email.toLowerCase());
+    const existingEmailKeys = await env.LICENSES.get(`email:${emailHash}`);
+    let emailKeyList: string[] = [];
+    if (existingEmailKeys) {
+      try {
+        const parsed = JSON.parse(existingEmailKeys);
+        if (Array.isArray(parsed)) {
+          emailKeyList = parsed as string[];
+        } else {
+          console.warn(`email:${emailHash} が配列ではありません。作り直します。`);
+        }
+      } catch (e) {
+        console.warn(`email:${emailHash} の JSON が壊れています。作り直します:`, e);
+      }
+    }
+    emailKeyList.push(key);
+    await env.LICENSES.put(`email:${emailHash}`, JSON.stringify(emailKeyList));
+  } catch (e) {
+    console.warn("購入者インデックスの更新に失敗（キー発行自体は成功）:", e);
+  }
 
   const response: AdminIssueResponse = {
     status: "ok",
@@ -166,14 +186,25 @@ export async function handleAdminRevoke(
   if (!recordJson) {
     return errorResponse("key_not_found", "キーが見つかりません", 404);
   }
-  const record: LicenseRecord = JSON.parse(recordJson);
+  // handleAdminIssue 側（M-6）は既に try/catch を入れてあるのに、ここだけ素通しで
+  // レコード破損時に 500 になっていた。失効は「壊れたレコードでも通したい」操作なので、
+  // パースできなくても blacklist 登録だけは必ず実行する。
+  let record: LicenseRecord | null = null;
+  try {
+    record = JSON.parse(recordJson) as LicenseRecord;
+  } catch (e) {
+    console.warn(`key:${body.key} のレコードが壊れています（blacklist のみ登録）:`, e);
+  }
 
-  // status を revoked に
-  record.status = "revoked";
-  record.notes = `${record.notes ?? ""}\n[REVOKED ${isoNow()}] ${body.reason}`;
-  await env.LICENSES.put(`key:${body.key}`, JSON.stringify(record));
+  // status を revoked に（レコードが読めた場合のみ）
+  if (record) {
+    record.status = "revoked";
+    record.notes = `${record.notes ?? ""}\n[REVOKED ${isoNow()}] ${body.reason}`;
+    await env.LICENSES.put(`key:${body.key}`, JSON.stringify(record));
+  }
 
   // blacklist に登録（/activate /verify で即時拒否される）
+  // ここが失効の実効部分なので、レコードの状態に関わらず必ず実行する
   const revokedAt = isoNow();
   await env.LICENSES.put(
     `blacklist:${body.key}`,

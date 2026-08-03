@@ -41,6 +41,40 @@ const RESEND_API_URL = "https://api.resend.com/emails";
 const RATE_WINDOW_SECONDS = 60;
 const RATE_LIMIT_COUNT = 5;
 
+/**
+ * 自動受付メール（ack）の 1 日あたり全体上限。
+ *
+ * ack は **リクエスト本文で指定された任意のアドレス** に ClipGift 名義で送る。
+ * IP レート制限（5 通/分）だけでは 1 日換算で桁違いに多く、
+ * Resend Free の 100 通/日を数分で使い切れてしまう。枠が尽きると
+ * **運営宛のエラー報告メール自体が送れなくなる**（= サポートが止まる）ので、
+ * 犠牲にする順序を明示する: 先に ack を止め、運営宛は最後まで守る。
+ *
+ * 上限に達しても報告の受付自体は成功扱い（KV 保存・trigger 作成は継続）。
+ */
+const ACK_DAILY_LIMIT = 30;
+
+/**
+ * 入力長の上限。Worker の CPU を守るための足切り（超過分は捨てる）。
+ *
+ * ⚠️ Workers の CPU 予算は 1 リクエストあたり 10ms しかない。
+ * 当初 10 万文字にしていたが、200KB の error_log を投げると
+ * JSON パース + 本文組み立て + Resend への送信で CPU を使い切り、
+ * **Cloudflare が error 1102（リソース上限超過）で 503 を返した**（本番で実測）。
+ * アプリ側（error_reporter.py）は 200 行に絞って送るので実測でも数 KB。
+ * 2 万文字あれば正規の報告は無傷で通り、攻撃的な巨大 body だけ落とせる。
+ */
+const MAX_ERROR_LOG_CHARS = 20000;
+const MAX_COMMENT_CHARS = 2000;
+const MAX_VERSION_CHARS = 40;
+
+/**
+ * 足切り前の生 body に対する保険。
+ * truncate は「JSON をパースした後」なので、パース自体が重すぎると意味がない。
+ * Content-Length の時点で明らかに過大なリクエストは、読む前に弾く。
+ */
+const MAX_RAW_BODY_BYTES = 256 * 1024;
+
 export async function handleSupportReport(
   request: Request,
   env: Env
@@ -51,6 +85,17 @@ export async function handleSupportReport(
       "internal_error",
       "サポートセンター未設定です。後ほど再度お試しください。",
       503
+    );
+  }
+
+  // 本文を読む前に、明らかに過大なリクエストを弾く。
+  // JSON.parse に到達した時点で CPU を持っていかれるため、ここが最初の防波堤。
+  const declaredLength = Number(request.headers.get("content-length") || "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_RAW_BODY_BYTES) {
+    return errorResponse(
+      "invalid_request",
+      "送信データが大きすぎます。ログを短くして再送信してください。",
+      413
     );
   }
 
@@ -65,6 +110,21 @@ export async function handleSupportReport(
       "app_version / error_log は必須です",
       400
     );
+  }
+
+  // 入力長の足切り。
+  // アプリ側（error_reporter.py）は 200 行に絞って送ってくるが、この API は公開なので
+  // 任意長の error_log を投げ込める。巨大 body をそのままメール本文に組み立てると
+  // Worker のメモリ / CPU 上限に当たって 500 を返すだけの状態になる。
+  if (typeof body.error_log === "string" && body.error_log.length > MAX_ERROR_LOG_CHARS) {
+    body.error_log =
+      body.error_log.slice(0, MAX_ERROR_LOG_CHARS) + "\n…（以降は長すぎるため省略）";
+  }
+  if (typeof body.user_comment === "string" && body.user_comment.length > MAX_COMMENT_CHARS) {
+    body.user_comment = body.user_comment.slice(0, MAX_COMMENT_CHARS) + "…（省略）";
+  }
+  if (typeof body.app_version === "string" && body.app_version.length > MAX_VERSION_CHARS) {
+    body.app_version = body.app_version.slice(0, MAX_VERSION_CHARS);
   }
 
   // 種別判定（既定はエラー報告、後方互換）
@@ -233,16 +293,25 @@ export async function handleSupportReport(
         "--",
         "ClipGift サポートセンター",
       ];
-      try {
-        await sendViaResend(env, {
-          from: env.SUPPORT_FROM_ADDRESS,
-          to: userEmail,
-          subject: ackSubject,
-          text: ackBodyLines.join("\n"),
-          skipReplyTo: true,
-        });
-      } catch (e) {
-        console.warn("自動受付メール送信失敗（非致命）:", e);
+      // ack は「任意の第三者アドレスへ ClipGift 名義で送る」経路なので、
+      // 日次の全体上限を必ず通す（Resend 枠を守り、運営宛の報告送信を優先する）
+      const ackAllowed = await consumeAckQuota(env);
+      if (!ackAllowed) {
+        console.warn(
+          `自動受付メールの日次上限（${ACK_DAILY_LIMIT}）に達したためスキップしました report_id=${reportId}`
+        );
+      } else {
+        try {
+          await sendViaResend(env, {
+            from: env.SUPPORT_FROM_ADDRESS,
+            to: userEmail,
+            subject: ackSubject,
+            text: ackBodyLines.join("\n"),
+            skipReplyTo: true,
+          });
+        } catch (e) {
+          console.warn("自動受付メール送信失敗（非致命）:", e);
+        }
       }
     }
   }
@@ -526,6 +595,31 @@ async function checkRateLimit(
     expirationTtl: RATE_WINDOW_SECONDS,
   });
   return true;
+}
+
+/**
+ * 自動受付メールの日次枠を 1 通ぶん消費する。上限内なら true。
+ *
+ * KV は結果整合なので厳密なカウンタにはならないが、ここでの目的は
+ * 「攻撃で Resend の日次枠を焼き切られない」ことなので、多少の誤差は許容する。
+ * 失敗時は true（送る側）に倒す — KV 障害で正規ユーザーの受付通知を止めない。
+ */
+async function consumeAckQuota(env: Env): Promise<boolean> {
+  const day = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  const key = `support:ack_daily:${day}`;
+  try {
+    const current = parseInt((await env.LICENSES.get(key)) || "0", 10) || 0;
+    if (current >= ACK_DAILY_LIMIT) {
+      return false;
+    }
+    await env.LICENSES.put(key, String(current + 1), {
+      expirationTtl: 60 * 60 * 48, // 2 日で自然消滅（日付キーなので再利用しない）
+    });
+    return true;
+  } catch (e) {
+    console.warn("ack 日次カウンタの更新に失敗（送信は継続）:", e);
+    return true;
+  }
 }
 
 function buildReportSubject(

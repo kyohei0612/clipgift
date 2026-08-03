@@ -29,8 +29,14 @@ _PATH_PATTERNS = [
 ]
 
 # ライセンスキーのパターン (CGFT-PLAN-XXXX-XXXX-XXXX)
+#
+# プラン部分は列挙せず [A-Z]{2,10} で受ける。
+# 現行の keys.ts は planCode() が常に "STD" を返すので LITE|STD|EXT でも一致するが、
+# ここを列挙にしておくと **プランコードを増やした瞬間に、キーがマスクされないまま
+# サポートメールへ送られる**（PII 漏れに直結し、しかも誰も気付けない）。
+# マスク側は広めに受けるのが安全。
 _LICENSE_PATTERN = re.compile(
-    r"CGFT-(LITE|STD|EXT)-([A-Z0-9]{4})-([A-Z0-9]{4})-([A-Z0-9]{4})",
+    r"CGFT-([A-Z]{2,10})-([A-Z0-9]{4})-([A-Z0-9]{4})-([A-Z0-9]{4})",
     re.IGNORECASE,
 )
 

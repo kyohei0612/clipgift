@@ -3,6 +3,7 @@ auto_update.py - GitHub自動更新モジュール
 app.pyからimportして使う
 """
 import os
+import re
 import json
 import shutil
 import subprocess
@@ -34,6 +35,9 @@ EXCLUDE_FILES = {
     "bin/audiowaveform.exe",
     "bin/python_path.txt",
     "bin/last_font.json",
+    # エンコーダ検出結果のキャッシュ（マシン固有 / GPU 構成依存）。
+    # 万一リポジトリに紛れ込んでも各ユーザーのローカル値を上書きしないよう除外する。
+    "bin/video_encoder.json",
     "server_start_count.txt",
     "version.json",
     # サポートセンター: kyohei ローカル運用専用（エンドユーザーには不要）
@@ -169,8 +173,9 @@ def _fetch_url(url, _retries=3):
 
 def get_remote_version():
     """GitHubのversion.jsonを取得（キャッシュ無効化）"""
-    url = _github_raw_url("version.json") + f"?t={int(time.time())}"
-    data = _fetch_url(url)
+    # キャッシュ無効化の ?t= は _fetch_url が付けるので、ここでは付けない
+    # （旧コードは両方で付けていて "?t=123&t=123" になっていた）
+    data = _fetch_url(_github_raw_url("version.json"))
     return json.loads(data.decode("utf-8"))
 
 
@@ -184,7 +189,17 @@ def get_local_version():
 
 
 def _version_tuple(v):
-    return tuple(int(x) for x in v.split("."))
+    """"1.2.3" → (1, 2, 3)。数値でない要素は 0 として扱う。
+
+    厳密に int() していたため、"2.0.1-beta" のような値が version.json に
+    一度でも入ると ValueError → check_update が例外を握って has_update=False を返し、
+    **以後ずっと更新できなくなる**（ユーザー側からは原因が全く見えない）。
+    """
+    parts = []
+    for x in str(v or "0").split("."):
+        m = re.match(r"\d+", x.strip())
+        parts.append(int(m.group()) if m else 0)
+    return tuple(parts) or (0,)
 
 
 def _git_blob_sha(path):
@@ -267,7 +282,13 @@ def _download_file(filepath):
     # .pyファイルの場合、Pythonとして構文チェック（空ファイル除く）
     if filepath.endswith(".py") and data:
         try:
-            compile(data.decode("utf-8", errors="replace"), filepath, "exec")
+            # errors="replace" だと不正バイトが U+FFFD に化けて compile が通ってしまい、
+            # 壊れたファイルを書き込んでしまう。厳密にデコードして破損を検出する。
+            text = data.decode("utf-8")
+        except UnicodeDecodeError as e:
+            raise ValueError(f"ダウンロードしたファイルが壊れています（UTF-8 として不正）: {filepath}: {e}")
+        try:
+            compile(text, filepath, "exec")
         except SyntaxError as e:
             raise ValueError(f"ダウンロードしたファイルの構文エラー: {filepath}: {e}")
 
@@ -275,8 +296,15 @@ def _download_file(filepath):
     os.makedirs(os.path.dirname(local_path) if os.path.dirname(local_path) else BASE_DIR, exist_ok=True)
 
     # バックアップ
+    # ⚠️ 既に .bak がある場合は絶対に上書きしないこと。
+    # .bak が残っている = 前回の更新が失敗して未ロールバックの状態。
+    # そこで上書きすると「壊れた更新後の内容」がバックアップになり、
+    # 次回起動時のロールバックで壊れたファイルが復元される（復旧不能）。
+    # 最初に取った「更新前の正しい内容」を守る。
     if os.path.exists(local_path):
-        shutil.copy2(local_path, local_path + ".bak")
+        backup_path = local_path + ".bak"
+        if not os.path.exists(backup_path):
+            shutil.copy2(local_path, backup_path)
 
     with open(local_path, "wb") as f:
         f.write(data)
@@ -301,13 +329,33 @@ def _clear_update_marker():
 
 
 def _list_backups():
-    """BASE_DIR 配下の .bak ファイルを列挙（bin/ と __pycache__/ は除外）。"""
+    """auto_update 自身が作った .bak だけを列挙する。
+
+    ⚠️ 「BASE_DIR 配下の .bak を全部」にしてはいけない。
+    _cleanup_backups() は更新成功のたびにここで挙がったファイルを os.remove するので、
+    **ユーザーが自分で置いた .bak が黙って消える**（`.gitignore` に `*.bak` があるため
+    追跡もされておらず復元不能）。実際に `sns_automation/config/templates.yaml.v1.bak`
+    が該当していた。rollback 側も原本を作り直す形でゴミを増やしていた。
+
+    自作の .bak だけに絞る条件は 2 つ:
+      1. 更新対象のパスであること（_is_excluded に該当しない）
+      2. 対応する原本が存在すること
+         （.bak は「既存ファイルを copy2 して」作るので、必ず原本が残っている）
+    """
     backups = []
     for root, dirs, files in os.walk(BASE_DIR):
         dirs[:] = [d for d in dirs if d not in {".git", "bin", "__pycache__"}]
         for fname in files:
-            if fname.endswith(".bak"):
-                backups.append(os.path.join(root, fname))
+            if not fname.endswith(".bak"):
+                continue
+            bak_abs = os.path.join(root, fname)
+            rel = os.path.relpath(bak_abs, BASE_DIR).replace(os.sep, "/")
+            if _is_excluded(rel) or _is_excluded(rel[:-4]):
+                continue
+            if not os.path.exists(bak_abs[:-4]):
+                # 原本が無い = auto_update が作った物ではない（ユーザーの手動バックアップ等）
+                continue
+            backups.append(bak_abs)
     return backups
 
 
@@ -408,11 +456,22 @@ def _sync_pip_packages_from_requirements():
 
 
 def run_update_async():
-    """バックグラウンドで更新を実行"""
+    """バックグラウンドで更新を実行。
+
+    既に更新中なら何もしない（False を返す）。
+    app.py の /start-update も status を見て弾いているが、
+    「状態を読む」→「起動する」の間に別リクエストが割り込む TOCTOU が残るため、
+    ここでロック内でチェックと状態遷移を原子的に行う。
+    二重に走ると同じファイルを 2 スレッドが同時に書き換え、.bak も壊れる。
+    """
+    with _update_lock:
+        if _update_state["status"] == "updating":
+            logger.warning("更新は既に実行中です（二重起動を抑止）")
+            return False
+        _update_state["status"] = "updating"
+        _update_state["message"] = "更新ファイルを取得中..."
+
     def _do_update():
-        with _update_lock:
-            _update_state["status"] = "updating"
-            _update_state["message"] = "更新ファイルを取得中..."
         _write_update_marker()
 
         try:
@@ -446,7 +505,15 @@ def run_update_async():
                 _update_state["message"] = "不要ファイルを削除中..."
             github_files = set(all_files) | {"version.json"}
             # EXCLUDE_PREFIXES からトップレベル除外ディレクトリを導出 + os.walk 必須スキップ
-            skip_dirs = _excluded_top_dirs() | {".git", "bin", "__pycache__"}
+            # ビルド成果物・依存ディレクトリも必ず除外する。
+            # これらは .gitignore 済み ＝ GitHub のファイル一覧に載らないため、
+            # 除外しないと「GitHub にないローカルファイル」として中身を全削除しに行く
+            # （node_modules は数万ファイル、target は 100MB+ になる）。
+            skip_dirs = _excluded_top_dirs() | {
+                ".git", "bin", "__pycache__",
+                "node_modules", ".venv", "venv", "env",
+                "target", "installer_output", ".wrangler", ".pytest_cache",
+            }
             for root, dirs, local_files in os.walk(BASE_DIR):
                 dirs[:] = [d for d in dirs if d not in skip_dirs]
                 for fname in local_files:
@@ -487,6 +554,7 @@ def run_update_async():
                 _update_state["message"] = f"更新エラー: {str(e)}（次回起動時にロールバックされます）"
 
     threading.Thread(target=_do_update, daemon=True).start()
+    return True
 
 
 def get_update_state():

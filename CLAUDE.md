@@ -110,15 +110,21 @@ Windows デスクトップで動く Flask 製のクリップ作成ツール。`p
 
 **ロック取得順序**: `processing_lock` → `_state_lock` の順を守る（デッドロック防止）。`_state_lock` は短時間のみ保持する（I/O や subprocess 呼び出しは外で行う）。
 
-### 3. Watchdog の存在
-- [app.py:406-429](app.py:406) に「ハートビート途絶検知 → サーバー終了」の watchdog スレッドがある
-- **テスト時に `os._exit(0)` で突然終了することがある**ので、デバッグ中は `_heartbeat_watchdog` を一時無効化すると楽
-- UI からの `/heartbeat` POST を 30 秒以上受けないと終了する
+### 3. Watchdog は存在しない（2026-05-06 廃止 / 2026-08-03 コード削除）
+- 「ハートビート途絶検知 → `os._exit(0)`」の watchdog は**もう無い**。長時間使用中に勝手に落ちる事故があったため廃止された
+- 中身が `return` だけの `_heartbeat_watchdog()` が残骸として残っていたが削除済み。`config.py` の `HEARTBEAT_TIMEOUT_SEC` / `WATCHDOG_*` も同時に削除
+- サーバーの終了経路は**ユーザー明示の `/api/shutdown` のみ**
+- `/heartbeat` ルートと `_last_heartbeat` は受け口として残っているが、値を読む側はいない（UI が投げ続けているため 404 にしないだけ）
 
 ### 4. 2 つの UI ページ
 - `/` → `templates/index.html` （755 行、シンプル解析画面）
-- `/page2` → `templates/index2.html` （**2226 行、メイン画面**）
-- ほとんどの作業は `index2.html` で行われる。静的アセットは `static/index2.{css,js}`
+- `/page2` → `templates/index2.html` （**6600 行、メイン画面**）
+- ほとんどの作業は `index2.html` で行われる。
+- ⚠️ **CSS も JS も `index2.html` にインラインで入っている。** 外部ファイルは無い。
+  - 2026-08-03 まで `static/index2.js`（1436 行）/ `static/index2.css`（443 行）が残っていたが、
+    **どのテンプレートからも読み込まれていない死んだ複製**だった（実体は index2.html の 2481 行目以降）。
+    片方だけ直しても何も起きない事故のもとなので削除済み。
+  - 共通で読み込む静的ファイルは `static/theme.js`（テーマ管理）のみ。
 
 ### 5. `app.py` の構成（P1 リファクタ後）
 - ルーティング + プロセスオーケストレーション + watchdog のみ（約 780 行）
@@ -183,4 +189,6 @@ Windows デスクトップで動く Flask 製のクリップ作成ツール。`p
 `app.py:55-150` の `analyze_chat_*` 関数群、または `backtest_runner.py` でパラメータを振って精度を確認。
 
 ### UI を変える
-`templates/index2.html`（2226 行、HTML/CSS/JS 混在）、`static/index2.css`, `static/index2.js`。
+`templates/index2.html`（6600 行、HTML/CSS/JS が全部このファイルに入っている）。
+テーマ管理だけ `static/theme.js` に分離されている。`static/index2.{js,css}` は
+死んだ複製だったので 2026-08-03 に削除済み（復活させないこと）。

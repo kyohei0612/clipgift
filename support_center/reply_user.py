@@ -18,6 +18,7 @@ from typing import Any
 import requests
 
 from support_center.config import SupportConfig
+from support_center.pii_masker import mask_email
 
 logger = logging.getLogger(__name__)
 
@@ -121,10 +122,13 @@ def send_reply(plan: ReplyPlan) -> bool:
         )
         return False
 
+    # ログには生アドレスを残さない（マスク済みを使う）。
+    # _short_email_label は「表示用短縮」を名乗りながら実際は完全なアドレスを
+    # そのまま返すので、ログ用途では pii_masker.mask_email を使う。
     logger.info(
         "ユーザー返信送信成功 hash=%s to=%s",
         plan.error_hash,
-        _short_email_label(plan.to_email),
+        mask_email(plan.to_email),
     )
 
     # 送信ログを incoming/{hash}.replied.txt に残す

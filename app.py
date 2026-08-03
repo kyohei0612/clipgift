@@ -98,13 +98,31 @@ def _handle_too_large(_e):
     )
 
 
-def generate_temp_audio_name(filename, clip_start, clip_end):
+def generate_temp_audio_name(filename, clip_start, clip_end, file_size=None):
     """
-    同じファイル・範囲なら同じ名前を返す
+    同じファイル・範囲なら同じ名前を返す（音声抽出のキャッシュキー）。
+
+    file_size を含めるのは、ファイル名 + 範囲だけだと「同名の別動画」で
+    前回の音声がそのまま返る誤ヒットが起きるため。
+    （例: 配信ごとに同じ "live.mp4" という名前で保存しているケース）
     """
-    base = f"{filename}_{clip_start}_{clip_end}"
+    base = f"{filename}_{file_size}_{clip_start}_{clip_end}"
     hashed = hashlib.md5(base.encode("utf-8")).hexdigest()
     return f"clipgen_{hashed}.mp3"
+
+
+def _stream_size(file_storage):
+    """アップロードストリームのサイズを取得して先頭に巻き戻す。取得不能なら None。"""
+    try:
+        stream = file_storage.stream
+        current = stream.tell()
+        stream.seek(0, os.SEEK_END)
+        size = stream.tell()
+        stream.seek(current)
+        return size
+    except Exception as e:
+        logger.debug("アップロードサイズ取得に失敗: %s", e)
+        return None
 
 
 def _terminate_then_kill(proc, timeout=None):
@@ -188,22 +206,23 @@ def _check_disk_space(required_bytes, target_dir):
         f"不要なファイルを削除してから再実行してください。"
     )
 
-def _heartbeat_watchdog():
+# ハートビート監視（watchdog）は 2026-05-06 に廃止済み。
+# 長時間使用中に勝手に落ちる事故があったため、ハートビート途絶による自動終了は行わない。
+# 終了経路はユーザー明示の「閉じる」ボタン → /api/shutdown のみ。
+# 中身が return だけの _heartbeat_watchdog() が残っていたが、誰も呼ばない死んだ関数なので削除した。
+# /heartbeat ルートは UI 側が投げ続けているため受け口だけ残してある（生存確認のログ用途）。
+
+
+def _is_under(path, parent):
+    """path が parent ディレクトリの配下にあるか判定する。
+
+    単純な startswith だと "C:\\...\\Temp" に対して "C:\\...\\TempEvil\\x.json" が
+    通ってしまうため、os.sep を付けて境界を明示する。
+    シンボリックリンク / ジャンクション経由の回避を防ぐため両側を realpath で正規化する。
     """
-    ハートビート監視（自動終了は廃止、ユーザー明示の閉じる操作のみで終了）
-
-    ハートビートのタイムアウトでアプリを勝手に終了させない方針。
-    ブラウザを閉じてもサーバーは起動したまま、ユーザーが明示的に
-    「閉じる」ボタン → 確認ダイアログ → /api/shutdown を叩いた時のみ終了。
-
-    （historic: 以前は HEARTBEAT_TIMEOUT_SEC 経過で os._exit(0) してたが、
-       長時間使用中に勝手に落ちるので 2026-05-06 廃止）
-    """
-    return  # ループ自体不要、廃止
-
-
-# watchdog スレッドは起動しない（自動終了廃止のため）
-# 念のため関数は残してあるが、呼び出さない
+    real_path = os.path.realpath(path)
+    real_parent = os.path.realpath(parent)
+    return real_path.startswith(real_parent + os.sep)
 
 
 @app.route('/sw.js')
@@ -280,7 +299,10 @@ def restart_route():
                 "timeout /t 1 /nobreak > nul",
                 "set LAUNCHED_BY_RESTART=1",
                 f'start "" /b "{python_exe}" "{app_py}"',
-                "exit /b 0",
+                # 実行後に自分自身を消す（BASE_DIR に _clipgift_restart.bat が残り続けるのを防ぐ）。
+                # cmd は bat を 1 行ずつ読み進めるため、自己削除は必ず最終行に置く。
+                # ここに exit /b を後置すると del より先に抜けてしまい削除されない。
+                'del "%~f0" >nul 2>&1',
             ]
             bat_path = os.path.join(BASE_DIR, "_clipgift_restart.bat")
             with open(bat_path, "w", encoding="cp932", errors="replace") as f:
@@ -456,49 +478,76 @@ def extract_audio():
         clip_end = float(request.form.get("end", 60))
 
         temp_dir = tempfile.gettempdir()
-        audio_name = generate_temp_audio_name(video_file.filename, clip_start, clip_end)
+        audio_name = generate_temp_audio_name(
+            video_file.filename, clip_start, clip_end, _stream_size(video_file)
+        )
         audio_path = os.path.join(temp_dir, audio_name)
 
         if os.path.exists(audio_path):
             logger.info("🎵 キャッシュヒット: %s", audio_path)
             return send_file(audio_path, mimetype="audio/mpeg")
 
-        fd, temp_video_path = tempfile.mkstemp(suffix=".mp4")
+        # prefix を clipgen_ にすることで cleanup_temp_files_and_dirs() の掃除対象に入る
+        # （既定の "tmp" プレフィックスだと掃除されず %TEMP% に数 GB の mp4 が残り続けていた）
+        fd, temp_video_path = tempfile.mkstemp(prefix="clipgen_", suffix=".mp4")
         os.close(fd)
-        video_file.save(temp_video_path)
-
-        ffmpeg_path = get_ffmpeg_path()
-        duration = clip_end - clip_start
-
-        cmd = [
-            ffmpeg_path,
-            "-y",
-            "-ss",
-            str(clip_start),
-            "-i",
-            temp_video_path,
-            "-t",
-            str(duration),
-            "-vn",
-            "-acodec",
-            "libmp3lame",
-            "-q:a",
-            "5",
-            audio_path,
-        ]
-
-        result = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-
-        if result.returncode != 0:
-            logger.error("FFmpegエラー: %s", result.stderr)
-            return jsonify({"error": "音声抽出失敗", "detail": result.stderr}), 500
-
         try:
-            os.remove(temp_video_path)
-        except Exception:
-            pass
+            video_file.save(temp_video_path)
 
-        return send_file(audio_path, mimetype="audio/mpeg")
+            ffmpeg_path = get_ffmpeg_path()
+            duration = clip_end - clip_start
+
+            cmd = [
+                ffmpeg_path,
+                "-y",
+                "-ss",
+                str(clip_start),
+                "-i",
+                temp_video_path,
+                "-t",
+                str(duration),
+                "-vn",
+                "-acodec",
+                "libmp3lame",
+                "-q:a",
+                "5",
+                audio_path,
+            ]
+
+            # timeout 必須: ffmpeg がハングすると Flask のリクエストスレッドを永久占有する
+            try:
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=config.FFMPEG_TIMEOUT_SEC,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
+            except subprocess.TimeoutExpired:
+                logger.error("FFmpeg が %d 秒でタイムアウト: %s", config.FFMPEG_TIMEOUT_SEC, audio_path)
+                # 中途半端な mp3 が次回キャッシュヒットしないよう消す
+                try:
+                    os.remove(audio_path)
+                except OSError:
+                    pass
+                return jsonify({"error": "音声抽出がタイムアウトしました"}), 504
+
+            if result.returncode != 0:
+                logger.error("FFmpegエラー: %s", result.stderr)
+                try:
+                    os.remove(audio_path)
+                except OSError:
+                    pass
+                return jsonify({"error": "音声抽出失敗", "detail": result.stderr}), 500
+
+            return send_file(audio_path, mimetype="audio/mpeg")
+        finally:
+            # 成功・失敗・例外いずれの経路でも入力動画を消す
+            # （旧コードは失敗 return 時に消しておらず、失敗のたび数 GB がリークしていた）
+            try:
+                os.remove(temp_video_path)
+            except OSError:
+                pass
 
     except Exception as e:
         logger.error("extract_audio エラー: %s", e)
@@ -530,8 +579,10 @@ def static_files(filename):
 @app.route("/download-yt-video-chat", methods=["POST"])
 def download_yt_video_chat():
     """YouTubeの動画とチャットをダウンロード"""
-    data = request.get_json()
-    video_url = data.get("videoUrl", "").strip()
+    # silent=True 必須: Content-Type が application/json でないリクエストで
+    # get_json() が例外を投げ、URL 未指定の 400 ではなく 500 になっていた
+    data = request.get_json(silent=True) or {}
+    video_url = (data.get("videoUrl") or "").strip()
 
     if not video_url:
         return jsonify({"success": False, "message": "URLが指定されていません"}), 400
@@ -673,10 +724,10 @@ def get_progress():
     progress_path = request.args.get("path")
     if not progress_path or not os.path.exists(progress_path):
         return jsonify({"progress": 0, "message": "未開始"})
-    abs_path = os.path.abspath(progress_path)
-    temp_dir = os.path.abspath(tempfile.gettempdir())
-    base_dir = os.path.abspath(BASE_DIR)
-    if not (abs_path.startswith(temp_dir) or abs_path.startswith(base_dir)):
+    abs_path = os.path.realpath(progress_path)
+    if not (
+        _is_under(abs_path, tempfile.gettempdir()) or _is_under(abs_path, BASE_DIR)
+    ):
         return jsonify({"progress": -1, "message": "不正なパスです"}), 400
     if not abs_path.endswith(".json"):
         return jsonify({"progress": -1, "message": "不正なファイル形式です"}), 400
@@ -693,18 +744,20 @@ def get_progress_file():
     progress_path = request.args.get("path")
     if not progress_path or not os.path.exists(progress_path):
         return jsonify({"progress": 0, "message": "未開始"})
-    abs_path = os.path.abspath(progress_path)
-    temp_dir = os.path.abspath(tempfile.gettempdir())
-    base_dir = os.path.abspath(BASE_DIR)
-    if not (abs_path.startswith(temp_dir) or abs_path.startswith(base_dir)):
+    abs_path = os.path.realpath(progress_path)
+    if not (
+        _is_under(abs_path, tempfile.gettempdir()) or _is_under(abs_path, BASE_DIR)
+    ):
         return jsonify({"progress": -1, "message": "不正なパスです"}), 400
     if not abs_path.endswith(".json"):
         return jsonify({"progress": -1, "message": "不正なファイル形式です"}), 400
     # atomic renameと競合しないようリトライ
+    # 検証したのは abs_path なので、open も abs_path で行う
+    # （旧コードは未正規化の progress_path を開いており、検証対象と実際に読むファイルがズレていた）
     last_err = None
     for _ in range(config.PROGRESS_READ_RETRIES):
         try:
-            with open(progress_path, "r", encoding="utf-8") as f:
+            with open(abs_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             # logsはメモリから注入（ファイルへの競合書き込みを完全回避）
             with _dl_logs_global_lock:
@@ -1001,9 +1054,17 @@ def process_clips():
                         if "failed_clip_indices" not in _shared_failed:
                             _shared_failed["failed_clip_indices"] = []
                         _shared_failed["failed_clip_indices"].append(idx)
+                        # idx は enumerate(clips, 1) 由来で既に 1 始まり。
+                        # 旧コードは更に +1 していたため
+                        #   - 表示が 1 個ズレる（クリップ1の失敗が「クリップ2の失敗」になる）
+                        #   - failed_clip_indices（素の idx）と表示番号が食い違う
+                        #   - 最終クリップ失敗時に進捗が 100 を超える
+                        # の 3 点が同時に起きていた。
+                        # 進捗は 99 で頭打ちにする。100 はループ後の完了ブロック専用
+                        # （UI が progress>=100 を「このクリップ完了」と解釈するため）。
                         _write_progress({
-                            "progress": int((idx + 1) / max(len(clips), 1) * 100),
-                            "message": f"⚠️ クリップ {idx + 1} の生成に失敗しました（次のクリップへ進みます）",
+                            "progress": min(99, int(idx / max(len(clips), 1) * 100)),
+                            "message": f"⚠️ クリップ {idx} の生成に失敗しました（次のクリップへ進みます）",
                             "current_clip": idx,
                             "failed_clip_indices": list(_shared_failed["failed_clip_indices"]),
                         })
@@ -1143,10 +1204,10 @@ def check_update_route():
 
 @app.route("/start-update", methods=["POST"])
 def start_update_route():
-    state = auto_update.get_update_state()
-    if state["status"] == "updating":
+    # 二重起動の最終判定は run_update_async 側のロック内で行う
+    # （ここでの status チェックだけだと、確認 → 起動の間に別リクエストが割り込む）
+    if not auto_update.run_update_async():
         return jsonify({"success": False, "message": "すでに更新中です"})
-    auto_update.run_update_async()
     return jsonify({"success": True})
 
 
@@ -1351,20 +1412,34 @@ def report_error_route():
         if not isinstance(attachments, list):
             return jsonify({"success": False, "message": "添付ファイル形式が不正です。"}), 400
 
-        if len(attachments) > 3:
+        if len(attachments) > config.ATTACHMENT_MAX_COUNT:
             return jsonify({
                 "success": False,
-                "message": "添付ファイルは最大 3 枚までです。",
+                "message": f"添付ファイルは最大 {config.ATTACHMENT_MAX_COUNT} 枚までです。",
             }), 400
 
+        max_mb = config.ATTACHMENT_MAX_BYTES / (1024 * 1024)
         for att in attachments:
             if not isinstance(att, dict):
                 return jsonify({"success": False, "message": "添付ファイル形式が不正です。"}), 400
             content_type = att.get("content_type", "")
-            if not content_type.startswith("image/"):
+            if not isinstance(content_type, str) or not content_type.startswith("image/"):
                 return jsonify({
                     "success": False,
                     "message": "添付できるのは画像ファイルのみです。",
+                }), 400
+
+            # サイズ検証。「各 5MB」はコメントとクライアント側にしか存在せず、
+            # サーバー側の実装が丸ごと抜けていた（fetch を直接叩けば無制限に送れる状態だった）。
+            b64 = att.get("content_base64")
+            if not isinstance(b64, str) or not b64:
+                return jsonify({"success": False, "message": "添付ファイル形式が不正です。"}), 400
+            # base64 は 4 文字 → 3 バイト。末尾 '=' パディング分を差し引いて元サイズを求める
+            decoded_size = (len(b64) * 3) // 4 - b64.count("=", -2)
+            if decoded_size > config.ATTACHMENT_MAX_BYTES:
+                return jsonify({
+                    "success": False,
+                    "message": f"添付ファイルは 1 枚あたり {max_mb:.0f}MB までです。",
                 }), 400
 
         # バージョン取得（auto_update 経由）
@@ -1613,11 +1688,33 @@ if __name__ == "__main__":
     # 既に同 port で稼働中の ClipGift があればブラウザを開いて自プロセスは終了する。
     # （古いプロセス累積による 500 系の不整合を防ぐ + 二重起動でユーザーが混乱する事故を防ぐ）
     def _is_already_running(host: str, port: int) -> bool:
+        """同じ port で「ClipGift が」稼働中かを判定する。
+
+        TCP 接続できるかだけで判定していると、5000 番を使う無関係なアプリが
+        いるだけで ClipGift が起動できず「既に稼働中です」と誤案内してしまう。
+        ClipGift 固有の /is_downloading を叩き、期待するキーが返るかまで確認する。
+        """
         import socket
+        import urllib.request
+
         try:
             with socket.create_connection((host, port), timeout=0.8):
-                return True
+                pass
         except (OSError, socket.timeout):
+            return False
+
+        # port は開いている。中身が ClipGift かどうかを確かめる
+        try:
+            with urllib.request.urlopen(
+                f"http://{host}:{port}/is_downloading", timeout=1.5
+            ) as resp:
+                payload = json.loads(resp.read().decode("utf-8"))
+            return isinstance(payload, dict) and "downloading" in payload
+        except Exception:
+            logger.warning(
+                "port %s は使用中ですが ClipGift の応答ではありません（別アプリと判断して起動を続行）",
+                port,
+            )
             return False
 
     if _is_already_running(config.SERVER_HOST, config.SERVER_PORT):

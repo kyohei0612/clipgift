@@ -45,6 +45,9 @@ PARALLEL_DOWNLOAD_WORKERS = 8
 META_REQUEST_TIMEOUT_SEC = 30
 META_REQUEST_RETRIES = 4
 
+# セグメント結合の上限秒数（-c copy なので長尺でも通常は数分）
+CONCAT_TIMEOUT_SEC = 3600
+
 
 def _http_request_with_retry(
     method: str,
@@ -277,7 +280,13 @@ def concat_segments_to_mp4(ts_files: List[str], output_mp4: str) -> None:
     list_file = output_mp4 + ".filelist.txt"
     with open(list_file, "w", encoding="utf-8") as f:
         for ts in ts_files:
-            f.write(f"file '{os.path.abspath(ts)}'\n")
+            # ffmpeg concat demuxer の `file '...'` はシングルクォート囲み。
+            # パス中の ' は  '\''  （閉じる→エスケープした'→開き直す）で書く必要がある。
+            # セグメントは "<出力mp4>.segments/" 配下なので、**VOD タイトルに
+            # アポストロフィがあるとパスに ' が入り、結合が丸ごと失敗していた**
+            # （sanitize_filename は ' を除去しないので "Don't ..." で実際に再現する）。
+            path = os.path.abspath(ts).replace("'", "'\\''")
+            f.write(f"file '{path}'\n")
 
     ffmpeg = get_ffmpeg_path()
     cmd = [
@@ -288,17 +297,21 @@ def concat_segments_to_mp4(ts_files: List[str], output_mp4: str) -> None:
         "-c", "copy",
         output_mp4,
     ]
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
-
-    # 一時ファイル削除
     try:
-        os.remove(list_file)
-    except OSError:
-        pass
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            timeout=CONCAT_TIMEOUT_SEC,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"ffmpeg concat が {CONCAT_TIMEOUT_SEC} 秒でタイムアウトしました")
+    finally:
+        # 一時ファイル削除（タイムアウト経路でも必ず消す）
+        try:
+            os.remove(list_file)
+        except OSError:
+            pass
 
     if result.returncode != 0:
         raise RuntimeError(
@@ -349,18 +362,19 @@ def download_twitch_video_native(
         f"[INFO] セグメント並列 DL 開始（{PARALLEL_DOWNLOAD_WORKERS} 並列）...",
         flush=True,
     )
-    ts_files = download_segments(
-        segments, temp_folder, progress_callback=progress_callback
-    )
-
-    print("[INFO] mp4 へ結合中...", flush=True)
-    concat_segments_to_mp4(ts_files, output_path)
-
-    # 一時セグメントフォルダ削除
+    # try/finally 必須。
+    # 旧コードは正常終了パスでしか rmtree しておらず、セグメント DL や結合が
+    # 失敗すると **数 GB の .ts が Downloads 配下に残り続けていた**
+    # （一時ファイル掃除の対象プレフィックスにも該当しないので永久に残る）。
     try:
+        ts_files = download_segments(
+            segments, temp_folder, progress_callback=progress_callback
+        )
+
+        print("[INFO] mp4 へ結合中...", flush=True)
+        concat_segments_to_mp4(ts_files, output_path)
+    finally:
         shutil.rmtree(temp_folder, ignore_errors=True)
-    except OSError:
-        pass
 
     print(f"[INFO] Twitch VOD ダウンロード完了: {output_path}", flush=True)
     return output_path

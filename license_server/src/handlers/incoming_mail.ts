@@ -52,10 +52,42 @@ const SUBJECT_REQUEST_NOTIFY = "【ClipGift 要望通知】";
  * v5.1: 件名だけで判定し、本文判定は local watcher の run_dialog（キーワード判定: OK / NG）に委譲。
  * Email Worker はキーワード判定をしない（誤判定リスクを排除）。
  */
-function classifyMessage(args: {
+function normalizeAddress(raw: string | undefined | null): string {
+  // "ClipGift サポート <a@b.com>" / "A@B.com " → "a@b.com"
+  if (!raw) return "";
+  const m = raw.match(/<([^>]+)>/);
+  return (m ? m[1] : raw).trim().toLowerCase();
+}
+
+/**
+ * 「秘書への返信」として信頼できる送信元かどうか。
+ *
+ * ⚠️ ここが無いと、外部の誰でも support@clipgift.org 宛に
+ *   `Re: 【ClipGift 確認依頼】<12桁hex>`
+ * という件名でメールを送るだけで `reply_to_secretary` トリガーを作れてしまう。
+ * ローカル watcher はそれを「kyohei が承認した」と解釈して
+ * **ユーザーへの返信メールを自動送信**しうる（承認のなりすまし）。
+ *
+ * 件名は誰でも自由に付けられるので、送信元アドレスで必ず絞る。
+ */
+export function isTrustedOperator(fromAddr: string, env: Env): boolean {
+  const sender = normalizeAddress(fromAddr);
+  if (!sender) return false;
+  const allowed = [
+    env.SUPPORT_FORWARD_TO,
+    env.SUPPORT_FORWARD_TO_REQUEST,
+    env.SUPPORT_REPLY_TO,
+  ]
+    .map(normalizeAddress)
+    .filter((a) => a.length > 0);
+  return allowed.includes(sender);
+}
+
+export function classifyMessage(args: {
   subject: string;
   body: string;
   from: string;
+  trustedOperator: boolean;
 }): { triggerType: IncomingTriggerType; errorHash?: string } {
   const subject = args.subject.trim();
 
@@ -74,6 +106,13 @@ function classifyMessage(args: {
   const isReply = /^\s*Re\s*:/i.test(subject);
 
   if (isReply) {
+    // reply_to_secretary は「運営（kyohei）からの返信」を意味し、
+    // watcher 側で承認 → ユーザーへの自動返信に繋がる。
+    // 件名は誰でも詐称できるので、送信元が運営アドレスでなければ扱わない。
+    if (!args.trustedOperator) {
+      return { triggerType: "ignore" };
+    }
+
     // 確認依頼/レビュー依頼への返信 → kyohei 返信、local watcher が run_dialog（キーワード判定: OK / NG）で処理
     const reviewMatch = subject.match(
       /【ClipGift 修正案レビュー依頼】\s*([0-9a-f]{12})/
@@ -141,11 +180,19 @@ export async function handleIncomingMail(
   const inReplyTo = parsed.inReplyTo || "";
   const messageId = parsed.messageId || "";
 
+  const trustedOperator = isTrustedOperator(fromAddr, env);
   const { triggerType, errorHash } = classifyMessage({
     subject,
     body,
     from: fromAddr,
+    trustedOperator,
   });
+  if (!trustedOperator && /^\s*Re\s*:/i.test(subject.trim())) {
+    // なりすまし疑いは記録に残す（転送はされるので人の目には触れる）
+    console.warn(
+      `外部送信元からの Re: メールを ignore しました from=${fromAddr} subject=${subject.slice(0, 80)}`
+    );
+  }
 
   // KV に保存
   const id = crypto.randomUUID();

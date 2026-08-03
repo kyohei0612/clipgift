@@ -11,6 +11,12 @@
        → Claude 起動（push + ユーザー返信送信）→ Phase: done
 
 ログ: support_center/incoming/_watcher.log
+
+⚠️ これは **IMAP 方式の旧経路** です。
+   受信は Cloudflare Email Worker + scripts/watch_support_http.py に移行済みで、
+   タスクスケジューラにも登録されていません（手動実行のときだけ動く）。
+   HTTP watcher と同時に走らせると同じトリガーを二重処理するので、
+   フォールバックとして使うとき以外は起動しないこと。
 """
 
 from __future__ import annotations
@@ -75,10 +81,10 @@ def main() -> int:
         try:
             if trig.phase == "analyzing":
                 # Claude 解析 → 修正 → 案作成
-                incident = claude_runner.run_analyze(
-                    trig.error_hash,
-                    trig.reply_body,
-                )
+                # 旧 API 名 run_analyze(hash, reply_body) は claude_runner に存在しない。
+                # 呼ぶと毎回 AttributeError になり、下の except に飲まれて
+                # 「トリガー処理例外」とだけ記録される = **全件必ず失敗していた**。
+                incident = claude_runner.run_analyze_and_push(trig.error_hash)
                 if incident is None or incident.state != "awaiting_approval":
                     logger.warning("解析失敗 hash=%s", trig.error_hash)
                     failure += 1
@@ -95,10 +101,8 @@ def main() -> int:
 
             elif trig.phase == "executing":
                 # push + ユーザー送信
-                incident = claude_runner.run_execute(
-                    trig.error_hash,
-                    trig.reply_body,
-                )
+                # 旧 API 名 run_execute(hash, reply_body) も存在しない（上と同じ理由）。
+                incident = claude_runner.run_push_and_send_to_user(trig.error_hash)
                 if incident is None or incident.state != "done":
                     logger.warning("実行失敗 hash=%s", trig.error_hash)
                     failure += 1

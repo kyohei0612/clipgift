@@ -12,15 +12,17 @@ import argparse
 import json
 import tempfile
 import traceback
-import random
 import gc
 import re
 import time
 import shutil
 import subprocess
 
-# Flask はサーバー側で利用
-from flask import Flask, request, jsonify, url_for
+# 注意: このスクリプトは app.py から「クリップ 1 本ごとに」subprocess で起動される。
+# import は起動のたびに毎回コストを払うので、未使用のものを置かないこと。
+# （以前 `from flask import ...` と `import random` が未使用のまま残っており、
+#   Flask の import だけでクリップ 1 本あたり約 310ms を捨てていた。
+#   乱数は np.random を使っているので標準 random も不要。）
 
 print(f"🎯 実行中ファイル: {__file__}", flush=True)
 
@@ -33,6 +35,12 @@ PROGRESS_LOG_EVERY = 50                 # 何件ごとに進捗を更新/ログ�
 CLIP_END_CUT_MARGIN_SEC = 2             # クリップ末尾から何秒分のコメントを捨てるか（リピート防止）
 CLIP_RETRY_COUNT = 3                    # クリップ単位の失敗再試行回数
 CLIP_RETRY_DELAY_SEC = 3                # 再試行前のウェイト秒数
+LANE_SAFETY_GAP_SEC = 0.15              # 同一レーンで前のコメントとの間に空ける余裕
+LANE_VERTICAL_GAP_PX = 10               # 上下のレーン間に空ける余白
+# レーン間隔の測定に使う見本文字列。
+# 上に伸びる字（ポ・ｗ）と下に伸びる字（ぐ・y・g）を必ず含めること。
+# ここが実際のコメントより低いと、隣のレーンと文字が重なる。
+_LANE_PROBE_TEXT = "あぐygポ草ｗ｜"
 
 
 # === 進捗ファイル書き込み用 ===
@@ -42,7 +50,6 @@ def safe_write_progress(progress_path, progress, message, current_clip=0):
         return
 
     try:
-        dir_name = os.path.dirname(progress_path)
         tmp_path = progress_path + ".tmp"
 
         with open(tmp_path, "w", encoding="utf-8") as f:
@@ -144,7 +151,16 @@ def create_text_image(text, font_path=None, fontsize=DEFAULT_FONTSIZE, color="wh
     pad_x, pad_y = 60, 40
     img = Image.new("RGBA", (text_w + pad_x, text_h + pad_y), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    x, y = pad_x // 2, pad_y // 2
+    # bbox の原点オフセットを引く。
+    # textbbox((0,0), ...) の左上は (0,0) ではなくフォントのアセント等でズレる
+    # （meiryo/fontsize=100 で bbox[1]=19、Noto Serif JP で 30 等）。
+    # キャンバス高は text_h + pad_y しか無いので、単純に (pad/2, pad/2) へ描くと
+    # bbox[1] > pad_y/2 のフォントで下端がはみ出して**文字が切れる**。
+    # 実測: UI で選べる 30 フォント中 4 つ（Noto Serif JP / はちまるポップ /
+    # モッチーポップ One / レゲエ One）が fontsize=100 で 5〜16px 切れていた。
+    # 原点を bbox 分ずらせば全フォント・全サイズで収まる（検算済み）。
+    x = pad_x // 2 - bbox[0]
+    y = pad_y // 2 - bbox[1]
 
     draw.text(
         (x, y),
@@ -156,6 +172,30 @@ def create_text_image(text, font_path=None, fontsize=DEFAULT_FONTSIZE, color="wh
     )
 
     return np.array(img), text_w + pad_x, text_h + pad_y
+
+
+def lane_spacing_for(fontsize, font_path=None):
+    """このフォント / サイズで、上下のレーンが重ならない最小間隔(px)を返す。
+
+    ⚠️ 旧実装はレーン間隔を **70px 固定** にしていた。
+    実際の文字の高さはフォントサイズに比例するので、UI が許す fontsize 60 以上では
+    隣のレーンと文字が重なる（実測: fontsize 100 で 44px 重なり = 読めない）。
+    ここで実際に 1 枚描画して、不透明ピクセルの縦幅から必要間隔を決める。
+    """
+    try:
+        arr, _tw, _th = create_text_image(
+            _LANE_PROBE_TEXT, font_path=font_path, fontsize=fontsize, color="#FFFFFF"
+        )
+        alpha = arr[:, :, 3]
+        rows = np.where(alpha.any(axis=1))[0]
+        if len(rows) == 0:
+            raise ValueError("描画結果が空")
+        glyph_h = int(rows.max()) - int(rows.min()) + 1
+    except Exception as e:
+        # 測定できなければフォントサイズから概算（安全側に広めを取る）
+        print(f"⚠️ レーン間隔の測定に失敗、概算で続行: {e}", flush=True)
+        glyph_h = int(fontsize * 1.25)
+    return max(glyph_h + LANE_VERTICAL_GAP_PX, 20)
 
 
 def time_str_to_seconds(t):
@@ -174,82 +214,148 @@ def time_str_to_seconds(t):
 
 
 def read_comments(csv_path, base=0, clip_ranges=None):
-    comments = []
-    current_range_index = 0
+    """CSV からコメントを読み、clip_ranges のいずれかに入るものだけ返す。
 
-    if clip_ranges:
-        clip_ranges = sorted(clip_ranges, key=lambda x: x[0])
-        current_start, current_end = clip_ranges[current_range_index]
-    else:
-        current_start, current_end = None, None
+    旧実装は「CSV が時刻の昇順に並んでいる」ことを前提に、レンジのカーソルを
+    前方へ進めながら読む方式だった。downloader.py が書く CSV は整列済みなので
+    通常は動くが、ユーザーが手で用意した CSV や複数配信を結合したログのように
+    時刻が前後すると、カーソルが進んだ後の行が**無言で捨てられて**いた
+    （その状態でも「Comments loaded: N 件」と出るので気付けない）。
+
+    どのみち main() 側でクリップ範囲による再フィルタが走るため、
+    ここは並び順に一切依存しない素直な判定にする。clip_ranges は実運用で
+    1 件（app.py がクリップ 1 本ごとに起動する）なのでコストも問題にならない。
+    """
+    comments = []
+    ranges = sorted(clip_ranges, key=lambda x: x[0]) if clip_ranges else None
+    skipped_unparsable = 0
 
     with open(csv_path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
             ts = time_str_to_seconds(row.get("time", ""))
-            txt = row.get("comment", "").strip()
-            if ts is None or not txt:
+            txt = (row.get("comment") or "").strip()
+            if ts is None:
+                skipped_unparsable += 1
+                continue
+            if not txt:
                 continue
 
-            if not clip_ranges:
+            if ranges is None:
                 if ts >= base:
                     comments.append({"time": ts, "text": txt})
                 continue
 
-            if current_range_index >= len(clip_ranges):
-                break
-
-            if ts < current_start:
-                continue
-
-            if current_start <= ts <= current_end:
-                comments.append({"time": ts, "text": txt})
-                continue
-
-            while ts > current_end:
-                current_range_index += 1
-                if current_range_index >= len(clip_ranges):
-                    break
-                current_start, current_end = clip_ranges[current_range_index]
-
-            if current_range_index >= len(clip_ranges):
-                break
-
-            if current_start <= ts <= current_end:
+            if any(s <= ts <= e for s, e in ranges):
                 comments.append({"time": ts, "text": txt})
 
+    if skipped_unparsable:
+        # ヘッダー名の不一致（time/comment 列が無い）だと全行がここに落ちる。
+        # 黙って 0 件になると原因が分からないので必ず出す。
+        print(
+            f"⚠️ 時刻を解釈できずスキップした行: {skipped_unparsable} 件"
+            f"（CSV のヘッダーが time,user,comment 形式か確認してください）",
+            flush=True,
+        )
     print(f"[INFO] Comments loaded: {len(comments)} 件")
     return comments
 
 
 class CommentTrack:
+    """コメントを流す y 座標（レーン）ごとに「最後に流したコメント」を覚えておく入れ物。
+
+    以前は同じ内容の find_y() を持っていたが、gen_clip 側に同じロジックが
+    インラインで書かれていて呼び出されておらず、二重実装になっていたため削除した。
+    """
+
     def __init__(self, w, h):
         self.video_w = w
         self.video_h = h
-        self.y_line_end_times = {}
+        # y -> (開始時刻, コメント画像の幅)
+        self.lane_last = {}
 
-    def find_y(self, new_start, dur, h, w, margin=40):
-        min_y = VIDEO_EDGE_PADDING_PX
-        max_y = self.video_h - h - VIDEO_EDGE_PADDING_PX
+    def next_free_time(self, y, tw_new, dur):
+        """レーン y に幅 tw_new のコメントを流せるようになる時刻を返す。
 
-        candidates = list(range(min_y, max_y + 1, 70))
-        np.random.shuffle(candidates)
+        コメントは右端 x=W から左端 x=-tw まで dur 秒かけて流れる
+        （overlay の x 式: W-((W+tw)*(t-start)/dur)）。
+        つまり速度は (W+tw)/dur で、**幅が広いコメントほど速い**。
 
-        for y in candidates:
-            y_end_time = self.y_line_end_times.get(y, -999)
-            if new_start >= y_end_time + 0.1:
-                return y
+        前のコメントに追突しない条件を解くと、必要な間隔は
+            dur * TW / (W + TW)      TW = max(前の幅, 今回の幅)
+        になる（前のコメントの末尾が画面に入りきる時刻と、
+        速い後続が前に追いつく時刻の、厳しい方）。
 
-        return None
+        旧実装は「表示時間 dur そのもの」レーンを占有していた。
+        1920px 幅・幅 300px のコメントなら本来 1.1 秒で次を流せるのに 7 秒
+        ふさいでいたことになり、**盛り上がりの瞬間ほどコメントが捨てられていた**
+        （実測: 秒 4 件で 51%、秒 10 件で 78% が画面に出ない）。
+        """
+        prev = self.lane_last.get(y)
+        if prev is None:
+            return -999.0
+        prev_start, prev_tw = prev
+        tw = max(prev_tw, tw_new)
+        gap = dur * tw / max(self.video_w + tw, 1)
+        # 画素単位で接触しないよう少しだけ余裕を持たせる
+        return prev_start + gap + LANE_SAFETY_GAP_SEC
+
+    def occupy(self, y, start_sec, tw):
+        self.lane_last[y] = (start_sec, tw)
 
 
 # === ffmpegパス（system_utils で一本化） ===
 from system_utils import get_ffmpeg_path, get_ffprobe_path
+from paths import BIN_DIR
 _ffmpeg_path = get_ffmpeg_path()
 
 
+# エンコーダ検出結果のキャッシュ。
+# このスクリプトは「クリップ 1 本ごとに」subprocess 起動されるため、毎回 ffmpeg を
+# 起動して検出すると純粋な無駄になる（実測 288ms/回、HW エンコーダが無い環境では
+# 3 回失敗するので 1 秒前後）。GPU 構成はそう変わらないのでファイルにキャッシュする。
+_ENCODER_CACHE_FILE = os.path.join(BIN_DIR, "video_encoder.json")
+_ENCODER_PROBE_TIMEOUT_SEC = 20
+
+
+def _encoder_cache_key():
+    """ffmpeg 実体が入れ替わったらキャッシュを捨てるためのキー。"""
+    try:
+        st = os.stat(_ffmpeg_path)
+        return f"{_ffmpeg_path}|{st.st_size}|{int(st.st_mtime)}"
+    except OSError:
+        return _ffmpeg_path
+
+
+def _load_cached_encoder():
+    try:
+        with open(_ENCODER_CACHE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if data.get("key") == _encoder_cache_key() and data.get("encoder"):
+            return data["encoder"]
+    except Exception:
+        pass
+    return None
+
+
+def _save_cached_encoder(name):
+    try:
+        os.makedirs(os.path.dirname(_ENCODER_CACHE_FILE), exist_ok=True)
+        tmp = _ENCODER_CACHE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"key": _encoder_cache_key(), "encoder": name}, f)
+        os.replace(tmp, _ENCODER_CACHE_FILE)
+    except Exception as e:
+        print(f"⚠️ エンコーダーキャッシュ保存に失敗（動作には影響なし）: {e}", flush=True)
+
+
 def _detect_encoder():
-    """使用可能なハードウェアエンコーダーを検出して返す"""
+    """使用可能なハードウェアエンコーダーを検出して返す（結果はキャッシュされる）"""
+    cached = _load_cached_encoder()
+    if cached:
+        print(f"✅ エンコーダー: {cached}（キャッシュ）", flush=True)
+        return cached
+
     candidates = [
         ("h264_nvenc",  ["-f", "lavfi", "-i", "nullsrc", "-t", "0.1", "-c:v", "h264_nvenc", "-f", "null", "-"]),
         ("h264_amf",    ["-f", "lavfi", "-i", "nullsrc", "-t", "0.1", "-c:v", "h264_amf",   "-f", "null", "-"]),
@@ -260,76 +366,102 @@ def _detect_encoder():
             ret = subprocess.run(
                 [_ffmpeg_path] + args,
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=_ENCODER_PROBE_TIMEOUT_SEC,
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             if ret.returncode == 0:
                 print(f"✅ エンコーダー: {name}", flush=True)
+                _save_cached_encoder(name)
                 return name
+        except subprocess.TimeoutExpired:
+            # ドライバ不整合で probe が固まる環境があるため、次の候補へ進む
+            print(f"⚠️ {name} の検出がタイムアウト、次の候補へ", flush=True)
         except Exception:
             pass
     print("⚠️ ハードウェアエンコーダーなし → libx264 (CPU) を使用", flush=True)
+    _save_cached_encoder("libx264")
     return "libx264"
 
 _VIDEO_ENCODER = _detect_encoder()
 
 
+_DEFAULT_VIDEO_INFO = (1920, 1080, 30.0)
+
+
 def get_video_info(video_path):
-    """ffprobeで動画のfps/width/heightを取得"""
-    ffprobe_path = get_ffprobe_path()
+    """ffprobeで動画のfps/width/heightを取得。取得できなければ既定値にフォールバックする。
+
+    旧実装は `json.loads(result.stdout)` を無防備に呼んでいたため、
+    ffprobe が失敗して stdout が空だと JSONDecodeError で落ち、
+    末尾のフォールバック (1920,1080,30) に到達できなかった。
+    さらに一部コンテナは r_frame_rate に "0/0" を返すため 0 除算していた。
+    """
+    try:
+        ffprobe_path = get_ffprobe_path()
+    except Exception as e:
+        print(f"⚠️ ffprobe が見つかりません（既定値で続行）: {e}", flush=True)
+        return _DEFAULT_VIDEO_INFO
+
     cmd = [
         ffprobe_path, "-v", "quiet", "-print_format", "json",
         "-show_streams", video_path
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, creationflags=subprocess.CREATE_NO_WINDOW)
-    info = json.loads(result.stdout)
-    for stream in info.get("streams", []):
-        if stream.get("codec_type") == "video":
-            w = stream["width"]
-            h = stream["height"]
-            fps_str = stream.get("r_frame_rate", "30/1")
-            num, den = fps_str.split("/")
-            fps = float(num) / float(den)
-            return w, h, fps
-    return 1920, 1080, 30.0
-
-
-def build_ffmpeg_overlay_filter(overlay_items, video_duration):
-    """
-    overlay_items: list of {img_path, x_expr, y, start_sec, end_sec}
-    ffmpegのfilter_complexを構築して返す
-    """
-    # ベース: [0:v] → 各overlayを順番に重ねていく
-    filter_parts = []
-    inputs = []
-    n = len(overlay_items)
-
-    if n == 0:
-        return None, []
-
-    prev = "[0:v]"
-    for i, item in enumerate(overlay_items):
-        inputs.append(item["img_path"])
-        label_in = f"[ov{i}]"
-        label_out = f"[v{i}]" if i < n - 1 else "[vout]"
-
-        # スクロール: x = W-(W+tw)*(t-start)/dur  (右→左)
-        start = item["start_sec"]
-        end = item["end_sec"]
-        dur = end - start
-        tw = item["tw"]
-        y = item["y"]
-
-        # ffmpegのoverlay x式: W-based scrolling
-        x_expr = f"W-((W+{tw})*(t-{start:.3f})/{dur:.3f})"
-        # enable: startからendまでの間だけ表示
-        enable_expr = f"between(t,{start:.3f},{end:.3f})"
-
-        filter_parts.append(
-            f"{prev}[{i+1}:v]overlay=x='{x_expr}':y={y}:enable='{enable_expr}'{label_out}"
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         )
-        prev = label_out
+    except Exception as e:
+        print(f"⚠️ ffprobe 実行に失敗（既定値で続行）: {e}", flush=True)
+        return _DEFAULT_VIDEO_INFO
 
-    return ";".join(filter_parts), inputs
+    if result.returncode != 0 or not (result.stdout or "").strip():
+        print(
+            f"⚠️ ffprobe が動画情報を返しませんでした (rc={result.returncode})。既定値で続行します",
+            flush=True,
+        )
+        return _DEFAULT_VIDEO_INFO
+
+    try:
+        info = json.loads(result.stdout)
+    except ValueError as e:
+        print(f"⚠️ ffprobe 出力の解析に失敗（既定値で続行）: {e}", flush=True)
+        return _DEFAULT_VIDEO_INFO
+
+    for stream in info.get("streams", []):
+        if stream.get("codec_type") != "video":
+            continue
+        try:
+            w = int(stream["width"])
+            h = int(stream["height"])
+        except (KeyError, TypeError, ValueError):
+            continue
+
+        fps = _DEFAULT_VIDEO_INFO[2]
+        fps_str = stream.get("r_frame_rate") or "30/1"
+        try:
+            num, den = fps_str.split("/")
+            num, den = float(num), float(den)
+            # "0/0" を返すコンテナがある。0 除算を避け、既定 fps にフォールバック
+            if den > 0 and num > 0:
+                fps = num / den
+            else:
+                print(f"⚠️ 不正な r_frame_rate ({fps_str}) → fps={fps} で続行", flush=True)
+        except (ValueError, TypeError):
+            print(f"⚠️ r_frame_rate を解釈できません ({fps_str}) → fps={fps} で続行", flush=True)
+
+        if w > 0 and h > 0:
+            return w, h, fps
+
+    print("⚠️ 動画ストリームが見つかりませんでした。既定値で続行します", flush=True)
+    return _DEFAULT_VIDEO_INFO
+
+
+# （削除済み）build_ffmpeg_overlay_filter():
+#   PNG を `-i` で 1 枚ずつ入力する旧方式のフィルタ組み立て関数。
+#   コマンドライン長制限 (WinError 206) を避けるため gen_clip 内の
+#   `movie=` フィルタ方式に置き換えられたが、関数だけ残って誰も呼んでいなかった。
+#   （dur = end - start の 0 除算ガードも無い状態だったので、復活させないこと）
 
 
 # ffmpeg が h264 デコード時に出す「無害だがエラーに見える」定型警告。
@@ -426,6 +558,21 @@ def gen_clip(
     tmp_dir = tempfile.mkdtemp(prefix="mp4chat_")
     overlay_items = []
     track_y = CommentTrack(w, h)
+    skipped_no_lane = 0
+    skipped_unrenderable = 0
+
+    # レーン間隔はフォントサイズから実測で決める（固定値だと大きい文字で重なる）
+    lane_spacing = lane_spacing_for(comment_fontsize, font_path)
+    _lane_count = len(range(
+        VIDEO_EDGE_PADDING_PX,
+        max(h - VIDEO_EDGE_PADDING_PX, VIDEO_EDGE_PADDING_PX + 1),
+        lane_spacing,
+    ))
+    print(
+        f"▶ レーン間隔: {lane_spacing}px（fontsize={comment_fontsize} の実測から算出）"
+        f" / 目安レーン数: {_lane_count}",
+        flush=True,
+    )
 
     try:
         for ci, c in enumerate(queue):
@@ -435,6 +582,7 @@ def gen_clip(
             # フォントで描画できない文字が多い場合はスキップ
             if font_path and not can_render_text(c["text"], font_path):
                 print(f"⚠️ スキップ（描画不可）: {c['text'][:20]}", flush=True)
+                skipped_unrenderable += 1
                 continue
 
             img_arr, tw, th = create_text_image(
@@ -446,20 +594,34 @@ def gen_clip(
 
             min_y = VIDEO_EDGE_PADDING_PX
             max_y = h - th - VIDEO_EDGE_PADDING_PX
-            candidates = list(range(min_y, max_y + 1, 70))
+            candidates = list(range(min_y, max_y + 1, lane_spacing))
+            if not candidates:
+                # 動画が低解像度（またはフォントが大きすぎ）で、余白 50px を引くと
+                # レーンが 1 本も取れないケース。旧実装は candidates が空 → y=None →
+                # 全コメントを **1 行のログも出さずに** 捨てていた
+                # （例: 240p の動画では 1 件もコメントが乗らない）。
+                # 最低 1 レーンは確保し、状況を必ずログに出す。
+                candidates = [max(0, min(min_y, max(0, h - th)))]
+                print(
+                    f"⚠️ 動画高 {h}px に対しコメント高 {th}px が大きく、"
+                    f"通常のレーンを確保できません（y={candidates[0]} に固定して継続）",
+                    flush=True,
+                )
             np.random.shuffle(candidates)
 
             y = None
             for cand_y in candidates:
-                y_end_time = track_y.y_line_end_times.get(cand_y, -999)
-                if c["time"] >= y_end_time + 0.1:
+                if c["time"] >= track_y.next_free_time(cand_y, tw, dur):
                     y = cand_y
                     break
 
             if y is None:
+                # 全レーンが先行コメントで埋まっている（同時刻に大量のコメント）。
+                # 捨てること自体は仕様だが、件数は必ず可視化する。
+                skipped_no_lane += 1
                 continue
 
-            track_y.y_line_end_times[y] = c["time"] + dur
+            track_y.occupy(y, c["time"], tw)
 
             # PNG保存
             img_path = os.path.join(tmp_dir, f"c{ci:05d}.png")
@@ -483,6 +645,13 @@ def gen_clip(
                 )
 
         print(f"▶ オーバーレイ画像生成完了: {len(overlay_items)} 件", flush=True)
+        if skipped_no_lane or skipped_unrenderable:
+            print(
+                f"   └ 内訳: 表示枠が空かず除外 {skipped_no_lane} 件 / "
+                f"フォント未対応で除外 {skipped_unrenderable} 件 "
+                f"(対象 {total_count} 件)",
+                flush=True,
+            )
         safe_write_progress(progress_path, 20, f"{clip_title}: 動画書き出し開始", clip_idx)
 
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -505,7 +674,14 @@ def gen_clip(
             # 単一引用符による wrap は filter_complex_script ファイル経由では効かないので
             # 必ず escape する。Windows パスの '\' は '/' に置換しておく。
             def _escape_movie_path(p):
-                return p.replace("\\", "/").replace(":", r"\\:")
+                # ':' 以外にも filtergraph のメタ文字がある。
+                # 一時ディレクトリは %TEMP%（= C:\Users\<ユーザー名>\...）配下なので、
+                # ユーザー名に ' や , を含むアカウントだと filter graph が壊れて
+                # クリップ生成が丸ごと失敗していた。まとめてエスケープする。
+                p = p.replace("\\", "/")
+                for ch in (":", "'", ",", ";", "[", "]"):
+                    p = p.replace(ch, "\\\\" + ch)
+                return p
 
             filter_parts = []
             prev = "[0:v]"
@@ -536,10 +712,13 @@ def gen_clip(
                 f"📝 filter_complex: {len(filter_complex)} 文字 / overlay {n} 件 → ファイルで渡します",
                 flush=True,
             )
-            cmd += ["-filter_complex_script", filter_script_path, "-map", "[vout]", "-map", "0:a"]
+            # "0:a?" の '?' は「音声ストリームが無ければ黙って省略」の意味。
+            # '?' 無しだと無音の録画（音声トラックなし）で
+            # "Stream map '0:a' matches no streams" となりクリップ生成が失敗していた。
+            cmd += ["-filter_complex_script", filter_script_path, "-map", "[vout]", "-map", "0:a?"]
         else:
             # コメントなし: そのままコピー
-            cmd += ["-map", "0:v", "-map", "0:a"]
+            cmd += ["-map", "0:v", "-map", "0:a?"]
 
         if _VIDEO_ENCODER in ("h264_nvenc", "h264_amf"):
             enc_opts = ["-c:v", _VIDEO_ENCODER, "-preset", "p4", "-cq", "18"]
@@ -563,7 +742,12 @@ def gen_clip(
 
     except Exception as e:
         print(f"❌ 書き出しエラー: {e}", flush=True)
-        safe_write_progress(progress_path, -1, f"{clip_title}: エラー - {e}", clip_idx)
+        # ⚠️ ここで progress=-1 を書いてはいけない。
+        # UI の 2 つのポーリング経路（index2.js の pollProgress と解析画面のループ）は
+        # どちらも progress < 0 を見た瞬間にポーリングを打ち切って「エラー終了」扱いにする。
+        # gen_clip は main() 側で最大 3 回リトライされるので、1 回目の失敗で -1 を書くと
+        # **リトライが成功しても UI はエラー表示のまま二度と更新されない**。
+        # 進捗の最終判定は main() に任せ、ここではログと例外伝搬だけ行う。
         traceback.print_exc()
         # 例外を呼び出し元に伝搬させる（main() のリトライ＆失敗判定に必須）。
         # 以前はここで握り潰していたため「処理完了」扱いになりファイル無生成のまま終了する致命バグになっていた。
@@ -617,7 +801,9 @@ def main():
     parser.add_argument("--comment-overlay", dest="comment_overlay", default="true")  # コメント流し ON/OFF（"true"/"false"）
     parser.add_argument("--comment-color", dest="comment_color", default="#FFFFFF")   # コメント色 #RRGGBB
     parser.add_argument("--comment-fontsize", dest="comment_fontsize", type=int, default=DEFAULT_FONTSIZE)  # コメントフォントサイズ px
-    parser.add_argument("--is-last", default="False")
+    # --is-last は app.py から渡されておらず、本体でも参照されていない。
+    # 外部から叩かれた場合に「unrecognized arguments」で落ちないよう受け口だけ残す。
+    parser.add_argument("--is-last", default="False", help=argparse.SUPPRESS)
     args = parser.parse_args()
 
     progress_path = args.progress
@@ -705,19 +891,31 @@ def main():
             except Exception as e:
                 print(f"⚠️ Clip {i} 失敗 (試行 {attempt}/{MAX_RETRY}): {e}", flush=True)
                 traceback.print_exc()
-                safe_write_progress(
-                    progress_path,
-                    -1,
-                    f"{display_title}: エラー (試行 {attempt})",
-                    clip_idx,
-                )
                 if attempt < MAX_RETRY:
+                    # リトライ余地がある間は progress を負にしない。
+                    # UI は progress < 0 でポーリングを止めてしまうため、途中経過として
+                    # -1 を書くと「この後リトライで成功しても UI は死んだまま」になる。
+                    safe_write_progress(
+                        progress_path,
+                        0,
+                        f"{display_title}: 失敗したので再試行します ({attempt}/{MAX_RETRY})",
+                        clip_idx,
+                    )
                     print(f"⏳ {RETRY_DELAY}秒後にリトライします...", flush=True)
                     time.sleep(RETRY_DELAY)
 
         if not success:
             print(f"❌ Clip {i} は {MAX_RETRY} 回失敗 → スキップ", flush=True)
-            safe_write_progress(progress_path, -1, f"{display_title}: 失敗", clip_idx)
+            # ここでも progress を負にしない。
+            # 親（app.py の run_process）は retcode != 0 を見た直後に必ず
+            # 「⚠️ クリップ N の生成に失敗しました（次のクリップへ進みます）」を
+            # progress.json へ書き、残りのクリップを続行する。
+            # 子が先に -1 を書くと、その上書きが起きるまでの数百ms の隙に UI が
+            # ポーリングを打ち切り、後続クリップの進捗が一切出なくなる。
+            # 最終的な状態の決定権は親に持たせ、子は exit code 1 で異常を伝える。
+            safe_write_progress(
+                progress_path, 0, f"{display_title}: 失敗（スキップして続行）", clip_idx
+            )
             all_success = False
             continue
 

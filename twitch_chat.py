@@ -95,19 +95,30 @@ def fetch_twitch_video_title(video_id: str) -> str:
     from downloader import sanitize_filename  # lazy import
     title_query = "query GetVideoTitle($videoID: ID!) { video(id: $videoID) { title } }"
     body = {"query": title_query, "variables": {"videoID": video_id}}
-    headers = {"Client-ID": TWITCH_CLIENT_ID}
     try:
         r = requests.post(
             TWITCH_GQL_URL,
-            headers=headers,
+            headers=_build_browser_headers(),
             json=body,
             timeout=30,
             impersonate="chrome120",
         )
         r.raise_for_status()
-        title = (r.json().get("data") or {}).get("video", {}).get("title", "") or ""
+        # video が明示的に null のとき .get("video", {}) は None を返す
+        # （キーが存在するのでデフォルト値は使われない）ので `or {}` が必要
+        video = (r.json().get("data") or {}).get("video") or {}
+        title = (video.get("title") or "").strip()
+        if not title:
+            # タイトルが取れないのに sanitize_filename("") に渡すと、
+            # あちらの汎用フォールバック "video" が返ってきてしまい、
+            # `or f"twitch_{video_id}"` が効かない（全 VOD が "video" フォルダに
+            # なって互いを上書きしかねない）。空なら先に打ち切る。
+            return f"twitch_{video_id}"
         sanitized = sanitize_filename(title)
-        return sanitized or f"twitch_{video_id}"
+        # 記号だけのタイトル等で sanitize 結果が汎用名になった場合も ID 名にする
+        if not sanitized or sanitized == "video":
+            return f"twitch_{video_id}"
+        return sanitized
     except Exception as e:
         print(f"[WARN] タイトル取得失敗、video ID をタイトルとして使用: {e}", flush=True)
         return f"twitch_{video_id}"
@@ -158,16 +169,9 @@ def _fetch_integrity_token(force_refresh: bool = False) -> str:
     ):
         return _CLIENT_STATE["integrity_token"]
 
-    _ensure_client_ids()
-    headers = {
-        "Client-ID": TWITCH_CLIENT_ID,
-        "Origin": "https://www.twitch.tv",
-        "Referer": "https://www.twitch.tv/",
-        "X-Device-Id": _CLIENT_STATE["device_id"],
-    }
     r = requests.post(
         "https://gql.twitch.tv/integrity",
-        headers=headers,
+        headers=_build_browser_headers(),
         json={},
         timeout=30,
         impersonate="chrome120",
@@ -192,13 +196,13 @@ def _post_persisted_query(operation_name: str, query_hash: str, variables: dict)
     2. **cursor 付きクエリ（ページネーション）には Client-Integrity トークンが必須**
     3. X-Device-Id / Origin / Referer もブラウザ風に
     """
-    _ensure_client_ids()
-    headers = {
-        "Client-ID": TWITCH_CLIENT_ID,
-        "Origin": "https://www.twitch.tv",
-        "Referer": "https://www.twitch.tv/",
-        "X-Device-Id": _CLIENT_STATE["device_id"],
-    }
+    # ヘッダーは _build_browser_headers() に一本化する。
+    # 以前はこの関数と _fetch_integrity_token / fetch_twitch_video_title の
+    # 3 か所がそれぞれ別の dict を手組みしていて、**_build_browser_headers 自体は
+    # 一度も呼ばれない死んだ関数**になっていた。その結果、モジュール冒頭で
+    # 「bot 判定回避に必須」と書かれている User-Agent / Accept-Language /
+    # Client-Session-Id が実際には 1 つも送られていなかった。
+    headers = _build_browser_headers()
     # cursor 付きはページネーション → integrity トークン必須
     if "cursor" in variables:
         headers["Client-Integrity"] = _fetch_integrity_token()
@@ -248,7 +252,11 @@ def _parse_edges(edges: list) -> list:
     result = []
     for e in edges:
         node = e.get("node") or {}
-        secs = node.get("contentOffsetSeconds", 0)
+        # `or 0` が必須。キーが存在して値が null のケースがあり、
+        # get のデフォルト値は使われないため None がそのまま int() に渡って
+        # TypeError でチャット取得ごと落ちていた（下の last_sec 計算側だけ
+        # `or 0` が付いていて、ここだけ抜けていた）。
+        secs = node.get("contentOffsetSeconds") or 0
         commenter = node.get("commenter") or {}
         user = commenter.get("displayName") or "（匿名）"
         fragments = (node.get("message") or {}).get("fragments") or []
@@ -299,8 +307,23 @@ def fetch_twitch_chat(video_id: str, progress_path: Optional[str] = None) -> lis
     # この回数連続したら本当に終端とみなす。
     # 単発の 0 だと「offset 秒に大量コメント → 全 seen」のケースで誤って打ち切る。
     EMPTY_PAGES_BEFORE_END = 30
+    # 安全弁。終了条件は「edges が空」「連続で新規ゼロ」「Twitch のエラー」の 3 つだけで、
+    # どれも Twitch のレスポンス次第なので、想定外の応答が続くと while True を
+    # 抜けられなくなる（offset は最低 1 秒ずつしか進まないので、
+    # 応答が返り続ける限りリクエストを打ち続けてしまう）。
+    # 24 時間配信でも 86400 秒 = 最悪でも 1 秒刻みで届く数を上限にしておく。
+    MAX_BATCHES = 100000
+    hit_batch_limit = False
 
     while True:
+        if batch_count >= MAX_BATCHES:
+            hit_batch_limit = True
+            print(
+                f"[WARN] 取得バッチ数が上限（{MAX_BATCHES}）に達したため打ち切ります "
+                f"(累計 {len(all_comments)} 件, offset={offset}s)",
+                flush=True,
+            )
+            break
         variables = {"videoID": video_id, "contentOffsetSeconds": offset}
 
         data = None
@@ -403,6 +426,11 @@ def fetch_twitch_chat(video_id: str, progress_path: Optional[str] = None) -> lis
                 offset = last_sec
         time.sleep(CHAT_BATCH_SLEEP_SEC)
 
+    if hit_batch_limit:
+        print(
+            "[WARN] 上限打ち切りのため、配信終盤のコメントが欠けている可能性があります",
+            flush=True,
+        )
     print(f"[INFO] Twitch チャット取得完了: {len(all_comments)} 件", flush=True)
     return all_comments
 

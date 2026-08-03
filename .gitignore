@@ -4,6 +4,10 @@ bin/audiowaveform.exe
 bin/github_token.txt
 bin/last_font.json
 bin/python_path.txt
+# エンコーダ検出結果のキャッシュ。マシン固有（GPU 構成依存）なので絶対に配布しない。
+# これを commit すると、開発機の h264_nvenc が全ユーザーに配られて
+# NVIDIA GPU の無い環境でクリップ生成が全滅する。
+bin/video_encoder.json
 installer_output/
 # installer_assets/ は親ごと除外せず、機密・大容量ファイルだけ個別除外
 # （ClipGiftLog.ico / README.txt / LICENSE.txt は配布物として追跡したい）

@@ -7,6 +7,16 @@ Pillow>=10.0,<12.0
 imageio-ffmpeg>=0.4.9,<1.0
 pytubefix>=6.0,<10.0
 
+# フォント名の取得と描画可否判定
+#   font_manager.get_font_japanese_name()  … フォント一覧の日本語名
+#   mp4inchatnagasi.can_render_text()      … 豆腐文字になるコメントのスキップ判定
+# ⚠️ setup.iss の pip には元から入っていたが、ここに書き漏れていた。
+#    auto_update は **requirements.txt を見て** pip 同期するので、
+#    抜けていると自動更新経路でだけ入らない。
+#    また `pip install -r requirements.txt` だけで作った環境ではフォント一覧が
+#    0 件になる（例外を握り潰して None を返すため、原因が見えない）。
+fonttools>=4.40,<5.0
+
 # Twitch VOD ダウンロード（downloader_twitch.py / twitch_video.py / twitch_chat.py）
 # - チャット: GraphQL 直叩き（curl_cffi で Chrome120 TLS 偽装、bot 検知回避）
 # - 動画: HLS パース + セグメント並列 DL + ffmpeg concat（自前実装、yt-dlp 非依存）
@@ -15,7 +25,10 @@ curl_cffi>=0.7,<1.0
 # ライセンス認証基盤（licensing/）
 cryptography>=42.0,<46.0
 
-# デスクトップウィンドウ（launcher_window.py）
-# - Windows では WebView2 (Edge Chromium) を利用、Chrome 完全不要
-# - 旧 Chrome --app 起動 (v1.0.113 〜 v1.0.119) の後継
+# デスクトップウィンドウ（launcher_window.py）※ 旧経路の互換用
+# - v2.0.0 で Tauri (src-tauri/ の ClipGift.exe) に置き換え済み。
+#   setup.iss は launcher_window.py を配布せず、pip にも pywebview を入れていない。
+# - つまりエンドユーザーには不要。ここに残っているせいで auto_update の
+#   pip 同期が全ユーザーに pywebview を入れてしまう（動作に害はないが無駄）。
+# - launcher_window.py をローカルで使わないなら、この行は消してよい。
 pywebview>=5.0,<6.0

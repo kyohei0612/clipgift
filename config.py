@@ -32,16 +32,23 @@ ALLOWED_VIDEO_EXTS = {".mp4", ".mkv", ".mov", ".webm", ".m4v"}
 ALLOWED_CSV_EXTS = {".csv", ".txt"}
 
 
+# ---------- エラー報告の添付ファイル ----------
+# templates/index2.html / index.html のクライアント側制限と必ず揃えること。
+# （クライアントは fetch を握られれば迂回できるので、サーバー側でも同じ値を強制する）
+ATTACHMENT_MAX_COUNT = _env_int("ATTACHMENT_MAX_COUNT", 3)
+ATTACHMENT_MAX_BYTES = _env_int("ATTACHMENT_MAX_BYTES", 5 * 1024 * 1024)
+
+
 # ---------- watchdog / heartbeat ----------
-# UI からハートビートが何秒途絶えたらサーバーを終了するか
-HEARTBEAT_TIMEOUT_SEC = _env_int("HEARTBEAT_TIMEOUT_SEC", 30)
-# 起動直後に watchdog を抑制する秒数（false positive 防止）
-WATCHDOG_START_DELAY_SEC = _env_int("WATCHDOG_START_DELAY_SEC", 10)
-# watchdog のチェック間隔
-WATCHDOG_INTERVAL_SEC = _env_float("WATCHDOG_INTERVAL_SEC", 1.0)
+# 2026-05-06 に「ハートビート途絶で自動終了」は廃止済み。
+# 終了経路はユーザー明示の /api/shutdown のみなので、関連する閾値設定も削除した。
+# （復活させる場合は app.py の _heartbeat_watchdog ごと復元すること）
 
 
 # ---------- プロセス / クリップ生成 ----------
+# 音声抽出 ffmpeg の上限秒数。ハングした ffmpeg が Flask のリクエストスレッドを
+# 永久占有するのを防ぐ（長尺クリップでも 10 分あれば足りる）
+FFMPEG_TIMEOUT_SEC = _env_int("FFMPEG_TIMEOUT_SEC", 600)
 # 全クリップ完了後、UI が結果を取得するまで待つ秒数
 COMPLETION_HOLD_SEC = _env_int("COMPLETION_HOLD_SEC", 5)
 # プロセスログのリングバッファ上限

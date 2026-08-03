@@ -29,6 +29,11 @@ CHAT_FETCH_BACKOFF_CAP_SEC = 30.0
 # 各チャットバッチ取得後のスロットリング（YouTube 側への過剰アクセス防止）
 CHAT_BATCH_SLEEP_SEC = 0.08
 
+# ffmpeg / audiowaveform の上限秒数。
+# 指定しないとハング時に DL スレッドが永久に戻らず、UI が固まったままになる。
+FFMPEG_MERGE_TIMEOUT_SEC = 3600   # 映像+音声の結合（-c copy なので通常は数十秒）
+WAVEFORM_TIMEOUT_SEC = 1800       # wav 抽出 / 波形 JSON 生成
+
 # 再試行しても意味がない（恒久的な）HTTP ステータス
 _NON_RETRYABLE_STATUS = {400, 401, 403, 404, 410}
 
@@ -80,7 +85,15 @@ def _extract_params(html):
     yid_m = re.search(r'ytInitialData["\']?\s*[:=]\s*(\{.*?\})[;\n]', html, flags=re.DOTALL)
     api_key = key_m.group(1) if key_m else None
     version = ver_m.group(1) if ver_m else "2.20201021.03.00"
-    yid = json.loads(yid_m.group(1)) if yid_m else None
+    # 正規表現が非貪欲なので、JSON の途中で切れて json.loads が失敗することがある。
+    # 素通しすると生の JSONDecodeError がユーザーに出てしまうため、None に倒して
+    # 呼び出し側の親切メッセージ（ChatNotAvailableError）経路に合流させる。
+    yid = None
+    if yid_m:
+        try:
+            yid = json.loads(yid_m.group(1))
+        except ValueError as e:
+            print(f"⚠️ ytInitialData の解析に失敗しました: {e}", flush=True)
     return api_key, version, yid
 
 
@@ -163,8 +176,11 @@ def _parse_messages(actions):
     messages = []
     latest_offset = 0
     for a in actions or []:
-        if "replayChatItemAction" in a:
-            item = a["replayChatItemAction"].get("actions", [{}])[0]
+        if "replayChatItemAction" not in a:
+            continue
+        # 1 つの replayChatItemAction に複数の action がぶら下がることがある。
+        # 旧実装は [0] しか見ておらず、2 個目以降のコメントを取りこぼしていた。
+        for item in a["replayChatItemAction"].get("actions") or [{}]:
             chat = item.get("addChatItemAction", {}).get("item", {})
             for t in ("liveChatTextMessageRenderer", "liveChatPaidMessageRenderer"):
                 if t in chat:
@@ -338,18 +354,26 @@ def download_chat(url, progress_path=None, out_path=None):
         )
 
     out = out_path if out_path else "chatlog.csv"
-    open(out, "w", encoding="utf-8").close()
     total = 0
     max_seen_offset = 0
     seen_continuations = set()
+    hit_batch_limit = True  # ループを break せず抜けたら上限到達
 
-    with open(out, "a", encoding="utf-8") as f:
-        f.write("time,user,comment\n")
+    # ⚠️ CSV は必ず csv モジュールで書くこと。
+    # 以前は f.write(f"{t},{author},{msg}\n") と手書きしていたため、
+    # コメントに半角カンマが含まれると列が増えてしまい、読み手
+    # （mp4inchatnagasi.py の DictReader / app.py の row[2]）が
+    # **カンマ以降を丸ごと失っていた**（"え,まって,今の何" → "え"）。
+    # クリップ検出のキーワード判定にも、動画に流すコメント本文にも影響する。
+    with open(out, "w", encoding="utf-8", newline="") as f:
+        csv_module.writer(f).writerow(["time", "user", "comment"])
 
     start_time = time.time()
-    for i in range(3000):
+    _BATCH_LIMIT = 3000
+    for i in range(_BATCH_LIMIT):
         if continuation in seen_continuations:
             print("🔁 同じ continuation が繰り返されたため終了します。")
+            hit_batch_limit = False
             break
         seen_continuations.add(continuation)
 
@@ -361,21 +385,29 @@ def download_chat(url, progress_path=None, out_path=None):
 
         if latest_offset > max_seen_offset:
             max_seen_offset = latest_offset
-        if max_seen_offset / 1000 >= duration:
-            print(f"🏁 動画時間（{duration}s）に到達したため終了します。")
-            break
 
-        with open(out, "a", encoding="utf-8") as f:
-            for t, author, msg, offset in msgs:
-                total += 1
-                print(f"{t},{author},{msg}", flush=True)
-                f.write(f"{t},{author},{msg}\n")
-            f.flush()
-            os.fsync(f.fileno())
+        # ⚠️ 取得したメッセージは「終了判定より先に」必ず書き出すこと。
+        # 旧実装は動画長到達の判定を書き込みより前に置いており、
+        # **最後のバッチのコメントが丸ごと捨てられていた**。
+        # 終盤ほど盛り上がる（＝クリップ対象になる）ので影響が大きい。
+        if msgs:
+            with open(out, "a", encoding="utf-8", newline="") as f:
+                writer = csv_module.writer(f)
+                for t, author, msg, offset in msgs:
+                    total += 1
+                    writer.writerow([t, author, msg])
+                f.flush()
+                os.fsync(f.fileno())
+
+        if duration > 0 and max_seen_offset / 1000 >= duration:
+            print(f"🏁 動画時間（{duration}s）に到達したため終了します。")
+            hit_batch_limit = False
+            break
 
         next_c = _extract_next_cont(data)
         if not next_c:
             print("🟢 continuation が無くなったため終了します。")
+            hit_batch_limit = False
             break
         continuation = next_c
 
@@ -399,6 +431,14 @@ def download_chat(url, progress_path=None, out_path=None):
             })
 
         time.sleep(CHAT_BATCH_SLEEP_SEC)
+
+    if hit_batch_limit:
+        # 上限に達しても黙って「✅ 完了」と出ていたため、取りこぼしに気付けなかった。
+        print(
+            f"⚠️ 取得バッチ数が上限（{_BATCH_LIMIT}）に達したため打ち切りました。"
+            f"動画終盤のコメントが欠けている可能性があります。",
+            flush=True,
+        )
 
     print(f"✅ 完了: {total} 件のコメントを {out} に保存しました。")
 
@@ -482,14 +522,30 @@ sys.stdout.reconfigure(encoding="utf-8")
 
 
 def safe_write_json(path, data):
-    dir_name = os.path.dirname(path)
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", dir=dir_name, delete=False
-    ) as tmp:
-        json.dump(data, tmp, ensure_ascii=False)
-        tmp.flush()
-        os.fsync(tmp.fileno())
-    shutil.move(tmp.name, path)
+    """progress.json をアトミックに書く。
+
+    失敗しても一時ファイルを残さない（旧実装は delete=False の NamedTemporaryFile を
+    作った後で例外が出ると tmpXXXX が書き込み先ディレクトリに残り続けていた。
+    出力先は Downloads/<タイトル>/ 配下なのでユーザーの目に触れるゴミになる）。
+    """
+    dir_name = os.path.dirname(path) or "."
+    tmp_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=dir_name, delete=False
+        ) as tmp:
+            tmp_name = tmp.name
+            json.dump(data, tmp, ensure_ascii=False)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+        shutil.move(tmp_name, path)
+        tmp_name = None
+    finally:
+        if tmp_name and os.path.exists(tmp_name):
+            try:
+                os.remove(tmp_name)
+            except OSError:
+                pass
 
 
 
@@ -630,11 +686,28 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
     )
     print(f"[INFO] 音声: {audio_stream.abr}", flush=True)
 
-    # 出力フォルダ作成（既存の場合は削除して再作成）
+    # 出力フォルダの決定。
+    # ⚠️ 旧実装は既存フォルダを問答無用で shutil.rmtree していた。
+    # title は「タイトル先頭 30 文字」なので、シリーズ物のように前半が同じ配信だと
+    # 別動画でも同じフォルダ名になり、**前回 DL した動画・チャット・波形が消えていた**
+    # （まだクリップにしていない素材の消失＝復旧不能）。
+    # 完成品（{title}.mp4）が残っている場合は消さずに連番フォルダへ退避する。
+    # 中断された残骸（video_temp.mp4 だけ等）なら従来どおり作り直す。
     title_folder = os.path.join(output_folder, title)
     if os.path.exists(title_folder):
-        shutil.rmtree(title_folder)
-        print(f"[INFO] 既存フォルダを削除して再ダウンロード: {title_folder}", flush=True)
+        if os.path.exists(os.path.join(title_folder, f"{title}.mp4")):
+            base_folder = title_folder
+            counter = 1
+            while os.path.exists(title_folder):
+                title_folder = f"{base_folder}({counter})"
+                counter += 1
+            print(
+                f"[INFO] 既存のダウンロード済みフォルダを保護し、別フォルダに保存します: {title_folder}",
+                flush=True,
+            )
+        else:
+            shutil.rmtree(title_folder)
+            print(f"[INFO] 未完了の残骸を削除して再ダウンロード: {title_folder}", flush=True)
     os.makedirs(title_folder, exist_ok=True)
 
     video_file = os.path.join(title_folder, "video_temp.mp4")
@@ -676,7 +749,18 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
         "-y",
         output_file,
     ]
-    result = subprocess.run(cmd, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    # timeout 必須: ffmpeg がハングすると DL スレッドが永久に戻らず、
+    # UI は「ダウンロード中」のまま固まってキャンセルするしか無くなる。
+    # -c copy なので長尺でも通常は数十秒。余裕を見て 1 時間。
+    try:
+        result = subprocess.run(
+            cmd, capture_output=True, timeout=FFMPEG_MERGE_TIMEOUT_SEC,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except subprocess.TimeoutExpired:
+        raise Exception(
+            f"ffmpeg の結合が {FFMPEG_MERGE_TIMEOUT_SEC} 秒でタイムアウトしました"
+        )
 
     if result.returncode == 0:
         # 一時ファイル削除
@@ -747,7 +831,10 @@ def download_video_and_chat(url, base_output_folder, progress_path, max_resoluti
             "2",
             wav_path,
         ]
-        subprocess.run(cmd_wav, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        subprocess.run(
+            cmd_wav, check=True, timeout=WAVEFORM_TIMEOUT_SEC,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
 
         cmd_probe = [
             ffprobe_path,
@@ -761,7 +848,8 @@ def download_video_and_chat(url, base_output_folder, progress_path, max_resoluti
             "csv=p=0",
         ]
         duration_output = subprocess.check_output(
-            cmd_probe, creationflags=subprocess.CREATE_NO_WINDOW
+            cmd_probe, timeout=WAVEFORM_TIMEOUT_SEC,
+            creationflags=subprocess.CREATE_NO_WINDOW,
         ).decode("utf-8", errors="replace").strip()
         duration_sec = int(float(duration_output))
         print(f"[INFO] 動画長さ: {duration_sec} 秒", flush=True)
@@ -792,7 +880,10 @@ def download_video_and_chat(url, base_output_folder, progress_path, max_resoluti
             "--bits",
             "8",
         ]
-        result = subprocess.run(cmd_json, check=True, capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        result = subprocess.run(
+            cmd_json, check=True, capture_output=True, timeout=WAVEFORM_TIMEOUT_SEC,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
         if result.stderr:
             print("[WARN] audiowaveform stderr:", result.stderr.decode("utf-8", errors="replace"))
 
@@ -837,7 +928,13 @@ def main():
         if is_twitch_url(video_url):
             from downloader_twitch import download_video_and_chat_twitch
             print(f"[INFO] Twitch URL として処理: {video_url}", flush=True)
-            download_video_and_chat_twitch(video_url, base_output_folder, progress_path)
+            print(f"[INFO] 画質指定: max_resolution={max_resolution}p", flush=True)
+            # max_resolution を渡していなかったため、UI の画質選択が Twitch では
+            # 完全に無視され、常に 1080p で DL されていた
+            download_video_and_chat_twitch(
+                video_url, base_output_folder, progress_path,
+                max_resolution=max_resolution,
+            )
         else:
             # YouTube として扱う前に簡易判定
             if "youtube.com" not in video_url and "youtu.be" not in video_url:
