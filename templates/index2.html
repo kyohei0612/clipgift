@@ -3317,6 +3317,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   console.log("✅ 要素取得完了");
 
+  // 再生速度・音量を前回の設定から復元し、以降の変更を保存する
+  if (typeof PlaybackPrefs !== "undefined") PlaybackPrefs.attach(videoPlayer);
+
   // フォント一覧を読み込む
   loadFonts();
 
@@ -4619,6 +4622,64 @@ const FontModal = (() => {
 
 // ===== Canvas ライブプレビュー（フォント設定モーダル内） =====
 /**
+ * 動画プレイヤーの再生設定（速度・音量）を次回起動まで覚えておく。
+ *
+ * <video controls> のネイティブ UI で倍速や音量を変えても、
+ * ページを開き直すと既定値（1.0 倍 / 音量 1.0）に戻ってしまうため。
+ *
+ * ⚠️ muted は保存しない。クリップ再生時に自動再生をブロックされないよう
+ *    一時的に muted=true → 再生開始後に false に戻す処理があり、
+ *    そこと取り合いになるため（保存すると「勝手にミュートが戻る」事故になる）。
+ */
+const PlaybackPrefs = (() => {
+  const RATE_KEY = "clipgift.playbackRate.v1";
+  const VOL_KEY = "clipgift.playbackVolume.v1";
+
+  function loadRate() {
+    const v = parseFloat(localStorage.getItem(RATE_KEY));
+    return Number.isFinite(v) && v >= 0.25 && v <= 4 ? v : null;
+  }
+  function loadVolume() {
+    const v = parseFloat(localStorage.getItem(VOL_KEY));
+    return Number.isFinite(v) && v >= 0 && v <= 1 ? v : null;
+  }
+
+  /** 保存済みの設定を <video> に適用する。動画を差し替えるたびに呼ぶ */
+  function apply(video) {
+    if (!video) return;
+    const r = loadRate();
+    const v = loadVolume();
+    try {
+      if (r !== null) video.playbackRate = r;
+      if (v !== null) video.volume = v;
+    } catch (_) {}
+  }
+
+  /** 変更を拾って保存する。1 回だけ配線すればよい */
+  function attach(video) {
+    if (!video || video.dataset.prefsBound === "1") return;
+    video.dataset.prefsBound = "1";
+    video.addEventListener("ratechange", () => {
+      try {
+        if (video.playbackRate > 0) {
+          localStorage.setItem(RATE_KEY, String(video.playbackRate));
+        }
+      } catch (_) {}
+    });
+    video.addEventListener("volumechange", () => {
+      // ミュート切替でも volumechange は飛ぶが、volume 自体は保持されるので
+      // muted の状態は保存せず音量だけ覚える
+      try { localStorage.setItem(VOL_KEY, String(video.volume)); } catch (_) {}
+    });
+    // 動画を読み込むたびにブラウザが既定値へ戻すので、そのたびに復元する
+    video.addEventListener("loadedmetadata", () => apply(video));
+    apply(video);
+  }
+
+  return { attach, apply, loadRate, loadVolume };
+})();
+
+/**
  * 選択されたチャット CSV を読んで、プレビューの素材にする。
  *
  * - コメント本文をそのまま流す（サンプル文言より実物のほうが仕上がりが読める）
@@ -4704,10 +4765,17 @@ const PreviewCanvas = (() => {
   // 実データのレートが高すぎると描画が重くなるので上限を設ける
   const MAX_RATE_PER_SEC = 20;
 
+  // レーン配置のパラメータ（mp4inchatnagasi.py と同じ値）
+  const VIDEO_EDGE_PADDING_PX = 50;    // 動画座標での画面端の余白
+  const LANE_VERTICAL_GAP_PX = 10;     // 上下レーンの余白
+  const LANE_SAFETY_GAP_SEC = 0.15;    // 同一レーンで前のコメントとの余裕
+
   // 実際に選択されたチャット CSV の内容（あればサンプル文言より優先）
   let sourceComments = null;     // string[]
   let baseRatePerSec = DEFAULT_RATE_PER_SEC;
   let densityPct = 100;
+  // レーン y -> { t: 開始秒, tw: 幅 }。当たり判定に使う
+  let laneLast = new Map();
 
   // 現在想定している動画解像度。デフォは 1920x1080、実動画が選ばれたら追従。
   let assumedVideoWidth = DEFAULT_VIDEO_W;
@@ -4785,7 +4853,24 @@ const PreviewCanvas = (() => {
     return Math.max(0.05, Math.min(MAX_RATE_PER_SEC, r));
   }
 
-  function spawn() {
+  /**
+   * レーン y に幅 twNew のコメントを流せるようになる時刻(秒)を返す。
+   * mp4inchatnagasi.py の CommentTrack.next_free_time と同じ式。
+   *
+   * コメントは右端から左端まで COMMENT_TRAVEL_SEC 秒で渡り切るので、
+   * **幅が広いコメントほど速い**。前のコメントに追突しない条件を解くと
+   *   必要な間隔 = dur * TW / (W + TW)   TW = max(前の幅, 今回の幅)
+   * になる（前の末尾が画面に入りきる時刻と、速い後続が追いつく時刻の厳しい方）。
+   */
+  function laneFreeAt(lane, twNew, cw) {
+    const prev = laneLast.get(lane);
+    if (!prev) return -Infinity;
+    const tw = Math.max(prev.tw, twNew);
+    const gap = COMMENT_TRAVEL_SEC * tw / Math.max(cw + tw, 1);
+    return prev.t + gap + LANE_SAFETY_GAP_SEC;
+  }
+
+  function spawn(nowSec) {
     if (!ctx || !canvas) return;
     // 実際に選んだ CSV のコメントがあればそれを流す（無ければサンプル文言）
     const pool = (sourceComments && sourceComments.length) ? sourceComments : SAMPLE_COMMENTS;
@@ -4800,12 +4885,36 @@ const PreviewCanvas = (() => {
     const tw = ctx.measureText(text).width;
     const cw = canvas.clientWidth;
     const ch = canvas.clientHeight;
-    const lineH = previewFontSize + 4;
-    const yMin = lineH;
-    const yMax = ch - 4;
-    const y = yMin + Math.random() * Math.max(0, yMax - yMin);
+    if (!cw || !ch) return;
+
+    // ─── レーン配置（書き出し側と同じ考え方）───
+    // 旧実装は y を完全ランダムに置いていて当たり判定が無く、
+    // **プレビュー上でコメントが重なって読めなかった**。
+    // 実際の書き出しはレーン制なので、プレビューが仕上がりを表していなかった。
+    const scale = previewScale();
+    const pad = Math.max(2, VIDEO_EDGE_PADDING_PX * scale);   // 画面端の余白
+    const laneStep = Math.max(4, previewFontSize * 1.2 + LANE_VERTICAL_GAP_PX * scale);
+    const yTop = pad + previewFontSize;          // baseline 基準
+    const yBottom = ch - pad;
+    const lanes = [];
+    for (let y = yTop; y <= yBottom; y += laneStep) lanes.push(y);
+    if (!lanes.length) lanes.push(Math.min(yTop, ch - 2));
+
+    // 空いているレーンを探す。無ければ捨てる（書き出し側と同じ挙動）
+    const order = lanes.slice();
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    let lane = null;
+    for (const cand of order) {
+      if (nowSec >= laneFreeAt(cand, tw, cw)) { lane = cand; break; }
+    }
+    if (lane === null) return;   // 全レーン埋まり → 今回は流さない
+    laneLast.set(lane, { t: nowSec, tw });
+
     const speed = (cw + tw) / COMMENT_TRAVEL_SEC; // px/sec
-    comments.push({ text, x: cw, y, tw, fontDecl, color, speed });
+    comments.push({ text, x: cw, y: lane, tw, fontDecl, color, speed });
   }
 
   function step(now) {
@@ -4825,7 +4934,7 @@ const PreviewCanvas = (() => {
       // 固定 600ms だと「% を変えてもプレビューが変わらない」ため。
       const intervalMs = 1000 / currentRatePerSec();
       if (now - lastSpawn > intervalMs) {
-        spawn();
+        spawn(now / 1000);
         lastSpawn = now;
       }
       // 更新 + 描画
@@ -4869,6 +4978,7 @@ const PreviewCanvas = (() => {
     lastFrame = 0;
     lastSpawn = 0;
     comments = [];
+    laneLast = new Map();
     rafId = requestAnimationFrame(step);
   }
 
@@ -4887,6 +4997,9 @@ const PreviewCanvas = (() => {
   function reset() {
     comments = [];
     lastSpawn = 0;
+    // レーンの占有状況も捨てる。残すとフォント/サイズ変更後に
+    // 古い幅で当たり判定してしまう
+    laneLast = new Map();
   }
 
   return {
