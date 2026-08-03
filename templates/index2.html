@@ -3521,6 +3521,8 @@ document.addEventListener("DOMContentLoaded", () => {
       chatInfo.title = file.name;
       console.log("💬 チャットファイル選択:", file.name);
     }
+    // プレビューの素材を、選ばれた CSV の実データに差し替える
+    loadPreviewCommentsFromCsv(file);
     checkReady();
   });
 
@@ -4546,11 +4548,23 @@ const FontModal = (() => {
     if (label) label.textContent = String(d);
     const hint = document.getElementById("commentDensityHint");
     if (hint) {
-      hint.textContent = d >= 100
-        ? "100% = チャットのコメントを全部流します"
-        : `コメントを約 ${d}% に間引いて流します`;
+      // 実 CSV を読めていれば、その配信での実際の密度を出す
+      const info = (typeof PreviewCanvas !== "undefined" && PreviewCanvas.getRateInfo)
+        ? PreviewCanvas.getRateInfo() : null;
+      if (info && info.sourceCount > 0) {
+        const eff = (info.base * d / 100).toFixed(1);
+        hint.textContent = d >= 100
+          ? `100% = このチャットを全部流します（秒 約${info.base.toFixed(1)}件）`
+          : `秒 約${eff}件（元は 秒 約${info.base.toFixed(1)}件）`;
+      } else {
+        hint.textContent = d >= 100
+          ? "100% = チャットのコメントを全部流します"
+          : `コメントを約 ${d}% に間引いて流します`;
+      }
     }
     try { localStorage.setItem(DENSITY_KEY, String(d)); } catch (_) {}
+    // プレビューの流量にも即反映する（% を変えたのに見た目が変わらないと確認できない）
+    PreviewCanvas.setDensity(d);
   }
 
   function initStyleControls() {
@@ -4592,6 +4606,8 @@ const FontModal = (() => {
   }
 
   return {
+    /** CSV を読み終えたあとにヒント表示を実データ基準へ更新する */
+    refreshDensityHint: () => applyDensity(currentDensity),
     init,
     open,
     close,
@@ -4602,6 +4618,78 @@ const FontModal = (() => {
 })();
 
 // ===== Canvas ライブプレビュー（フォント設定モーダル内） =====
+/**
+ * 選択されたチャット CSV を読んで、プレビューの素材にする。
+ *
+ * - コメント本文をそのまま流す（サンプル文言より実物のほうが仕上がりが読める）
+ * - 実際の「秒あたり件数」を測って 100% の基準にする
+ *   （コメント量 % はこのレートに掛かるので、% を動かすと見た目が変わる）
+ *
+ * 巨大な CSV でも固まらないよう、先頭の一定バイトだけ読む。
+ */
+function loadPreviewCommentsFromCsv(file) {
+  if (!file || typeof PreviewCanvas === "undefined") return;
+  if (!file.name || !/\.(csv|txt)$/i.test(file.name)) return;
+
+  const MAX_BYTES = 2 * 1024 * 1024;   // 先頭 2MB だけ見れば傾向は掴める
+  const MAX_TEXTS = 400;               // プレビューに使う語彙の上限
+  const blob = file.size > MAX_BYTES ? file.slice(0, MAX_BYTES) : file;
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    try {
+      const lines = String(reader.result || "").split(/\r?\n/);
+      if (lines.length && /time/i.test(lines[0])) lines.shift();   // ヘッダー行
+
+      const texts = [];
+      let firstSec = null, lastSec = null, count = 0;
+      const toSec = (t) => {
+        const p = String(t).trim().split(":").map(Number);
+        if (p.some(isNaN)) return null;
+        if (p.length === 2) return p[0] * 60 + p[1];
+        if (p.length === 3) return p[0] * 3600 + p[1] * 60 + p[2];
+        return null;
+      };
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        // time,user,comment 形式。comment にカンマが入っていても壊さないよう
+        // 3 列目以降を結合して本文とみなす（引用符は簡易的に外す）
+        const cols = line.split(",");
+        if (cols.length < 3) continue;
+        const sec = toSec(cols[0]);
+        if (sec === null) continue;
+        count++;
+        if (firstSec === null) firstSec = sec;
+        lastSec = sec;
+        const body = cols.slice(2).join(",").trim().replace(/^"|"$/g, "");
+        if (body && texts.length < MAX_TEXTS) texts.push(body);
+      }
+
+      if (!count) {
+        PreviewCanvas.clearCommentSource();
+        return;
+      }
+      const span = Math.max(1, (lastSec || 0) - (firstSec || 0));
+      const ratePerSec = count / span;
+      PreviewCanvas.setCommentSource(texts, ratePerSec);
+      // 実レートが分かったのでヒント表示を更新する
+      if (typeof FontModal !== "undefined" && FontModal.refreshDensityHint) {
+        FontModal.refreshDensityHint();
+      }
+      console.log(
+        `🎬 プレビュー素材を CSV から取得: ${texts.length} 種 / ` +
+        `実レート 秒 ${ratePerSec.toFixed(2)} 件（${count} 件 / ${span} 秒）`
+      );
+    } catch (e) {
+      console.warn("プレビュー用 CSV の解析に失敗（サンプル文言で続行）:", e);
+      PreviewCanvas.clearCommentSource();
+    }
+  };
+  reader.onerror = () => PreviewCanvas.clearCommentSource();
+  reader.readAsText(blob, "utf-8");
+}
+
 const PreviewCanvas = (() => {
   const SAMPLE_COMMENTS = [
     "やばい", "草", "うぽつ！", "ｗｗｗｗｗ", "おはよう", "888888",
@@ -4611,7 +4699,15 @@ const PreviewCanvas = (() => {
   const DEFAULT_VIDEO_W = 1920;
   const DEFAULT_VIDEO_H = 1080;
   const COMMENT_TRAVEL_SEC = 7;        // 画面横断時間
-  const SPAWN_INTERVAL_MS = 600;
+  // 読み込んだ CSV が無いときの既定レート（秒あたり）。従来の 600ms 相当
+  const DEFAULT_RATE_PER_SEC = 1000 / 600;
+  // 実データのレートが高すぎると描画が重くなるので上限を設ける
+  const MAX_RATE_PER_SEC = 20;
+
+  // 実際に選択されたチャット CSV の内容（あればサンプル文言より優先）
+  let sourceComments = null;     // string[]
+  let baseRatePerSec = DEFAULT_RATE_PER_SEC;
+  let densityPct = 100;
 
   // 現在想定している動画解像度。デフォは 1920x1080、実動画が選ばれたら追従。
   let assumedVideoWidth = DEFAULT_VIDEO_W;
@@ -4683,9 +4779,17 @@ const PreviewCanvas = (() => {
     reset();
   }
 
+  /** 今の設定で 1 秒あたり何件流すか（コメント量 % を反映） */
+  function currentRatePerSec() {
+    const r = baseRatePerSec * (densityPct / 100);
+    return Math.max(0.05, Math.min(MAX_RATE_PER_SEC, r));
+  }
+
   function spawn() {
     if (!ctx || !canvas) return;
-    const text = SAMPLE_COMMENTS[Math.floor(Math.random() * SAMPLE_COMMENTS.length)];
+    // 実際に選んだ CSV のコメントがあればそれを流す（無ければサンプル文言）
+    const pool = (sourceComments && sourceComments.length) ? sourceComments : SAMPLE_COMMENTS;
+    const text = pool[Math.floor(Math.random() * pool.length)];
     const previewFontSize = Math.max(8, size * previewScale());
     const family = FontModal.getCurrentFontFamily();
     const fontDecl =
@@ -4717,7 +4821,10 @@ const PreviewCanvas = (() => {
     ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
 
     if (enabled) {
-      if (now - lastSpawn > SPAWN_INTERVAL_MS) {
+      // 出現間隔はコメント量（%）と、読み込んだ CSV の実レートから決める。
+      // 固定 600ms だと「% を変えてもプレビューが変わらない」ため。
+      const intervalMs = 1000 / currentRatePerSec();
+      if (now - lastSpawn > intervalMs) {
         spawn();
         lastSpawn = now;
       }
@@ -4791,6 +4898,33 @@ const PreviewCanvas = (() => {
     setEnabled: (v) => { enabled = !!v; },
     setColor: (c) => { color = c; reset(); },
     setSize: (s) => { size = s; reset(); },
+    /**
+     * 実際に選んだチャット CSV をプレビューの素材にする。
+     * @param texts コメント本文の配列
+     * @param ratePerSec その配信の実際の秒あたり件数（100% のときの密度）
+     */
+    setCommentSource: (texts, ratePerSec) => {
+      sourceComments = (texts && texts.length) ? texts : null;
+      if (ratePerSec && isFinite(ratePerSec) && ratePerSec > 0) {
+        baseRatePerSec = ratePerSec;
+      }
+      reset();
+    },
+    clearCommentSource: () => {
+      sourceComments = null;
+      baseRatePerSec = DEFAULT_RATE_PER_SEC;
+      reset();
+    },
+    /** コメント量（%）。プレビューの出現頻度に即反映する */
+    setDensity: (pct) => {
+      const d = Math.max(1, Math.min(100, parseInt(pct, 10) || 100));
+      densityPct = d;
+      reset();
+    },
+    getRateInfo: () => ({
+      base: baseRatePerSec, density: densityPct, effective: currentRatePerSec(),
+      sourceCount: sourceComments ? sourceComments.length : 0,
+    }),
   };
 })();
 
@@ -6806,7 +6940,15 @@ if (document.readyState === "loading") {
         fetch("/check-update").then(r => r.json()).then(data => {
           const badge = document.getElementById("version-badge");
           if (badge && data.local_version) badge.textContent = "v" + data.local_version;
-          if (data.error || !data.has_update) {
+          // 確認に失敗した場合は「最新です」と言わない。
+          // 旧実装は data.error でも「最新バージョンです」と出していたため、
+          // GitHub に繋がらないだけなのに最新だと誤認させていた。
+          if (data.error) {
+            icon.textContent = "!"; title.textContent = "更新を確認できませんでした";
+            msg.textContent = "ネットワーク環境をご確認のうえ、しばらくしてからお試しください";
+            closeBtn.style.display = "inline-block"; return;
+          }
+          if (!data.has_update) {
             icon.textContent = "✓"; title.textContent = "最新バージョンです";
             msg.textContent = data.local_version ? "v" + data.local_version : "";
             closeBtn.style.display = "inline-block"; return;
@@ -6815,7 +6957,14 @@ if (document.readyState === "loading") {
           msg.textContent = "しばらくお待ちください"; spinner.style.display = "block";
           fetch("/start-update", { method: "POST" }).then(() => pollUpdateState())
             .catch(() => { icon.textContent = "✕"; title.textContent = "更新に失敗しました"; spinner.style.display = "none"; skipBtn.style.display = "inline-block"; });
-        }).catch(() => closeUpdateOverlay());
+        }).catch(() => {
+          // 旧実装はここで黙ってオーバーレイを閉じていた＝「押しても何も起きない」。
+          // 何が起きたか必ず画面に出す。
+          icon.textContent = "!"; title.textContent = "更新を確認できませんでした";
+          msg.textContent = "サーバーに接続できませんでした";
+          spinner.style.display = "none";
+          closeBtn.style.display = "inline-block";
+        });
       };
 
       function pollUpdateState() {

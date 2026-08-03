@@ -1287,7 +1287,15 @@
         fetch("/check-update").then(r => r.json()).then(data => {
           const badge = document.getElementById("version-badge");
           if (badge && data.local_version) badge.textContent = "v" + data.local_version;
-          if (data.error || !data.has_update) {
+          // 確認に失敗した場合は「最新です」と言わない（index2.html と同じ修正）。
+          // 旧実装は data.error でも「最新バージョンです」と出しており、
+          // GitHub に繋がらないだけなのに最新だと誤認させていた。
+          if (data.error) {
+            icon.textContent = "!"; title.textContent = "更新を確認できませんでした";
+            msg.textContent = "ネットワーク環境をご確認のうえ、しばらくしてからお試しください";
+            closeBtn.style.display = "inline-block"; return;
+          }
+          if (!data.has_update) {
             icon.textContent = "✓"; title.textContent = "最新バージョンです";
             msg.textContent = data.local_version ? "v" + data.local_version : "";
             closeBtn.style.display = "inline-block"; return;
@@ -1296,7 +1304,13 @@
           msg.textContent = "しばらくお待ちください"; spinner.style.display = "block";
           fetch("/start-update", { method: "POST" }).then(() => pollUpdateState())
             .catch(() => { icon.textContent = "✕"; title.textContent = "更新に失敗しました"; spinner.style.display = "none"; skipBtn.style.display = "inline-block"; });
-        }).catch(() => closeUpdateOverlay());
+        }).catch(() => {
+          // 旧実装はここで黙ってオーバーレイを閉じていた＝「押しても何も起きない」
+          icon.textContent = "!"; title.textContent = "更新を確認できませんでした";
+          msg.textContent = "サーバーに接続できませんでした";
+          spinner.style.display = "none";
+          closeBtn.style.display = "inline-block";
+        });
       };
 
       window.closeUpdateOverlay = function() { overlay.style.display = "none"; };
