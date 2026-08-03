@@ -1375,15 +1375,93 @@ body.is-modal-open.queue-collapsed #queueReopenTab { display: block; }
           border-color: var(--brand-500);
           box-shadow: 0 0 0 3px rgba(39, 154, 217, 0.18);
         }
+        .font-trigger-main {
+          font-weight: 600;
+          white-space: nowrap;
+        }
         .font-trigger-label {
           flex: 1;
+          min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
+          color: var(--text-secondary);
+          font-size: 12px;
+          text-align: right;
         }
         .font-trigger-icon {
           color: var(--text-secondary);
           font-size: 12px;
+        }
+        .font-trigger:disabled {
+          opacity: 0.45;
+          cursor: not-allowed;
+          border-color: var(--border);
+        }
+        .font-trigger:disabled:hover {
+          border-color: var(--border);
+        }
+
+        /* コメント流し ON/OFF（条件設定に表出。意匠はモーダルのトグルと揃える） */
+        .comment-overlay-row {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          flex-wrap: wrap;
+        }
+        .comment-overlay-row.is-off .overlay-switch-text {
+          color: var(--text-muted);
+        }
+        .overlay-switch {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          cursor: pointer;
+          user-select: none;
+        }
+        .overlay-switch input[type="checkbox"] {
+          appearance: none;
+          -webkit-appearance: none;
+          width: 0;
+          height: 0;
+          position: absolute;
+          opacity: 0;
+        }
+        .overlay-switch-slider {
+          position: relative;
+          width: 44px;
+          height: 24px;
+          background: var(--text-muted);
+          border-radius: 999px;
+          transition: background 0.2s ease;
+          flex-shrink: 0;
+        }
+        .overlay-switch-slider::before {
+          content: "";
+          position: absolute;
+          left: 2px;
+          top: 2px;
+          width: 20px;
+          height: 20px;
+          background: #fff;
+          border-radius: 50%;
+          transition: transform 0.2s ease;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+        .overlay-switch input[type="checkbox"]:checked + .overlay-switch-slider {
+          background: var(--brand-500);
+        }
+        .overlay-switch input[type="checkbox"]:checked + .overlay-switch-slider::before {
+          transform: translateX(20px);
+        }
+        .overlay-switch input[type="checkbox"]:focus-visible + .overlay-switch-slider {
+          box-shadow: 0 0 0 3px rgba(39, 154, 217, 0.25);
+        }
+        .overlay-switch-text {
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--text-primary);
+          min-width: 2.2em;
         }
 
         .font-modal {
@@ -1804,16 +1882,9 @@ body.is-modal-open.queue-collapsed #queueReopenTab { display: block; }
               aria-label="閉じる"
             >×</button>
           </header>
-          <div class="font-modal-toggle-row">
-            <label class="font-modal-toggle">
-              <input type="checkbox" id="commentOverlayToggle" checked>
-              <span class="font-modal-toggle-slider" aria-hidden="true"></span>
-              <span class="font-modal-toggle-text">
-                <strong>コメント流し</strong>
-                <em id="commentOverlayToggleState">ON — 動画に流れるコメントを合成します</em>
-              </span>
-            </label>
-          </div>
+          <!-- ON/OFF トグルは条件設定（第 2 ステップ）へ移動した。
+               ここに置くと「流すかどうか」を決めるのにモーダルを開く必要があり、
+               外から現在の状態が見えなかった。二重管理を避けるため複製は置かない。 -->
           <div class="font-modal-preview-row font-modal-section">
             <div class="font-modal-preview-wrap">
               <canvas
@@ -2280,17 +2351,28 @@ body.is-modal-open.queue-collapsed #queueReopenTab { display: block; }
         </div>
         <div class="form-row">
           <div class="form-sub">
-            <label for="fontTriggerBtn">コメント表示</label>
-            <button
-              type="button"
-              id="fontTriggerBtn"
-              class="font-trigger"
-              aria-haspopup="dialog"
-              aria-controls="fontModal"
-            >
-              <span class="font-trigger-label" id="fontTriggerLabel">⚙ フォント設定</span>
-              <span class="font-trigger-icon" aria-hidden="true">▾</span>
-            </button>
+            <!-- 一番大きい二択（流す / 流さない）を表に出す。
+                 以前はこのトグルがモーダルの中にあり、外から見ても ON/OFF が
+                 分からなかった（ボタンにはフォント名しか出ていなかった）。 -->
+            <label>コメント流し</label>
+            <div class="comment-overlay-row">
+              <label class="overlay-switch">
+                <input type="checkbox" id="commentOverlayMainToggle" checked>
+                <span class="overlay-switch-slider" aria-hidden="true"></span>
+                <span class="overlay-switch-text" id="commentOverlayMainState">ON</span>
+              </label>
+              <button
+                type="button"
+                id="fontTriggerBtn"
+                class="font-trigger"
+                aria-haspopup="dialog"
+                aria-controls="fontModal"
+              >
+                <span class="font-trigger-icon" aria-hidden="true">⚙</span>
+                <span class="font-trigger-main">詳細設定</span>
+                <span class="font-trigger-label" id="fontTriggerLabel"></span>
+              </button>
+            </div>
             <input type="hidden" id="fontSelect" name="font_name" value="">
             <input type="hidden" id="commentOverlayEnabled" name="comment_overlay_enabled" value="true">
           </div>
@@ -3764,13 +3846,66 @@ document.addEventListener("DOMContentLoaded", () => {
 
       let lastClipIdx = -1;
 
+      // 進捗ポーリングが一時的に失敗しても、生成そのものは止めない。
+      //
+      // クリップ生成はサーバー側の daemon スレッドで走っていて、HTTP 接続とは無関係に
+      // 完走する。にもかかわらず旧実装は fetch が 1 回（正確には fetchWithRetry の
+      // 3 回）失敗しただけで throw し、**動画は正常に出来ているのに全件「失敗:
+      // Failed to fetch」と表示して打ち切っていた**（ユーザー報告 2026-08-03）。
+      // ここは「サーバーが本当に落ちた」ときだけ諦めるべきなので、
+      // 失敗が続いた合計時間で判断する。
+      const POLL_GIVEUP_MS = 120000;   // 2 分間ずっと繋がらなければ本当に異常
+      let pollFailedSince = null;
+      let pollFailCount = 0;
+      // 進捗ファイル消失の判定用（下の「未開始」処理を参照）
+      const PROGRESS_GONE_MS = 15000;
+      let sawRealProgress = false;
+      let goneSince = null;
+
       while (!downloadCancelled) {
         await new Promise((r) => setTimeout(r, 500));
 
-        const pRes = await fetchWithRetry(
-          `/progress?path=${encodeURIComponent(progressPath)}&t=${Date.now()}`
-        );
-        if (!pRes.ok) throw new Error("進捗取得に失敗しました");
+        let pRes;
+        try {
+          pRes = await fetchWithRetry(
+            `/progress?path=${encodeURIComponent(progressPath)}&t=${Date.now()}`
+          );
+          if (!pRes.ok) throw new Error(`進捗取得に失敗しました (HTTP ${pRes.status})`);
+        } catch (pollErr) {
+          pollFailCount++;
+          if (pollFailedSince === null) pollFailedSince = Date.now();
+          const elapsed = Date.now() - pollFailedSince;
+          console.warn(
+            `⚠️ 進捗取得に失敗（${pollFailCount} 回目 / 通算 ${Math.round(elapsed / 1000)}秒）` +
+            `: ${pollErr && pollErr.message}。生成は継続中のはずなので再試行します`
+          );
+          if (elapsed >= POLL_GIVEUP_MS) {
+            throw new Error(
+              `進捗を ${Math.round(elapsed / 1000)} 秒取得できませんでした` +
+              `（${pollErr && pollErr.message}）。` +
+              `動画は生成されている可能性があるので Downloads を確認してください`
+            );
+          }
+          // 画面には「通信が不安定」であることだけ出し、失敗扱いにはしない
+          pendingClips.forEach((clip) => {
+            if (completedSet.has(clip.id) || failedSet.has(clip.id)) return;
+            const li = document.getElementById(`queue-item-${clip.id}`);
+            const st = li && li.querySelector(".status");
+            if (st) {
+              st.style.color = "orange";
+              st.textContent = `⏳ 通信が不安定です（再試行中 ${Math.round(elapsed / 1000)}秒）`;
+            }
+          });
+          continue;
+        }
+
+        // 復帰した
+        if (pollFailedSince !== null) {
+          console.log(`✅ 進捗取得が復帰しました（${pollFailCount} 回失敗のあと）`);
+          pollFailedSince = null;
+          pollFailCount = 0;
+        }
+
         const pText = await pRes.text();
         if (!pText || pText.trim() === "") continue; // 空なら次のポーリングまで待つ
         let pData;
@@ -3780,6 +3915,30 @@ document.addEventListener("DOMContentLoaded", () => {
           continue; // JSONパース失敗なら次のポーリングまで待つ
         }
         console.log("📘 進捗ポーリング:", pData);
+
+        // 進捗ファイルが消えた ＝ サーバー側の処理が終わっている。
+        //
+        // app.py は「全クリップ完了 → all_done を書く → COMPLETION_HOLD_SEC 秒待つ
+        // → progress.json を削除」という順で動く。その後 /progress は
+        // {"progress":0,"message":"未開始"} を返し続ける。
+        // 通信が一瞬途切れて all_done の数秒間を取り逃すと、
+        // **動画は出来ているのに UI が永久に「処理中」のまま**になる。
+        // 一度でも進捗を見たあとに「未開始」が続いたら、終わったものとして扱う。
+        if (sawRealProgress && pData && pData.message === "未開始") {
+          if (goneSince === null) goneSince = Date.now();
+          if (Date.now() - goneSince >= PROGRESS_GONE_MS) {
+            console.warn(
+              "進捗ファイルが消えているため、処理は完了したものとして扱います" +
+              "（all_done を取り逃した可能性）"
+            );
+            break;
+          }
+          continue;
+        }
+        if (pData && pData.message !== "未開始") {
+          goneSince = null;
+          sawRealProgress = true;
+        }
 
         if (downloadCancelled) {
           pendingClips.forEach((clip) => {
@@ -4197,7 +4356,9 @@ const FontModal = (() => {
     if (!label) return;
     const fi = fontsList.find((f) => f.name === name);
     label.dataset.fontName = name || "";
-    label.textContent = fi ? (fi.display_name || fi.name) : (name || "フォントを選ぶ");
+    // ボタンの主ラベルは「詳細設定」固定。選択中のフォント名は副次情報として添える
+    //（以前はここにフォント名だけが出ていて、何のボタンか分からなかった）
+    label.textContent = fi ? (fi.display_name || fi.name) : (name || "未選択");
     label.style.fontFamily = "";
     if (fi) {
       ensureFontLoaded(fi).then((family) => {
@@ -4254,9 +4415,10 @@ const FontModal = (() => {
     const closeBtn = document.getElementById("fontModalCloseBtn");
     const cancelBtn = document.getElementById("fontModalCancelBtn");
     const confirmBtn = document.getElementById("fontModalConfirmBtn");
-    const overlayToggle = document.getElementById("commentOverlayToggle");
+    // ON/OFF は条件設定側（モーダルの外）に移した
+    const overlayToggle = document.getElementById("commentOverlayMainToggle");
     const overlayHidden = document.getElementById("commentOverlayEnabled");
-    const overlayState = document.getElementById("commentOverlayToggleState");
+    const overlayState = document.getElementById("commentOverlayMainState");
 
     if (trigger) trigger.addEventListener("click", open);
     if (overlay) overlay.addEventListener("click", close);
@@ -4270,11 +4432,16 @@ const FontModal = (() => {
       const content = document.querySelector(".font-modal-content");
       if (content) content.classList.toggle("is-overlay-off", !enabled);
       if (overlayHidden) overlayHidden.value = enabled ? "true" : "false";
-      if (overlayState) {
-        overlayState.textContent = enabled
-          ? "ON — 動画に流れるコメントを合成します"
-          : "OFF — コメントは合成せず、元動画のまま切り出します";
+      if (overlayState) overlayState.textContent = enabled ? "ON" : "OFF";
+      // OFF のときは詳細（フォント / 色 / サイズ）を触っても意味がないので閉ざす
+      if (trigger) {
+        trigger.disabled = !enabled;
+        trigger.title = enabled
+          ? "フォント・色・サイズを設定します"
+          : "コメント流しが OFF のため設定できません";
       }
+      const row = document.querySelector(".comment-overlay-row");
+      if (row) row.classList.toggle("is-off", !enabled);
       PreviewCanvas.setEnabled(enabled);
       try { localStorage.setItem(TOGGLE_KEY, enabled ? "1" : "0"); } catch (_) {}
     }
