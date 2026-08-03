@@ -443,7 +443,15 @@ def analyze_chat_csv():
         clip_offset = int(request.form.get("clip_offset", 30))
         video_duration = int(request.form.get("videoDuration", 0))
 
-        keywords = [k.strip() for k in keywords_str.split(",") if k.strip()]
+        # キーワードの区切りは「カンマだけ」ではない。
+        # UI の例示が「草」「ｗ」と単語を並べた形なので、実際には
+        # 半角/全角スペース区切りで入力されることが多い。
+        # 旧実装は split(",") のみだったため `ｗ 草` が
+        # **「w 草」という 1 つの語**として扱われ、
+        # 「ｗ 単独なら 13 本 / 草 単独なら 5 本 / ｗ 草 だと 0 本」という
+        # 直感に反する結果になっていた（実データで再現確認済み）。
+        # カンマ（半角/全角）・読点・空白（全角含む）をまとめて区切りとして扱う。
+        keywords = [k for k in re.split(r"[,，、\s]+", keywords_str) if k]
         if not keywords:
             return jsonify({"error": "キーワードが空です"}), 400
 
