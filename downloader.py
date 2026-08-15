@@ -486,24 +486,76 @@ def download_chat(url, progress_path=None, out_path=None):
 
 # === youtubeChatdl.py インライン終わり ===
 from pytubefix import YouTube
+from pytubefix import request as pytubefix_request
 
 # --- YouTube bot 検出対策: クライアント順次フォールバック ---
 # pytubefix 既定クライアント（WEB / ANDROID）は YouTube に bot 判定され
 # 「This request was detected as a bot. Use use_po_token=True ...」で失敗することがある。
 # use_po_token=True はコンソールで token 貼り付けを対話要求するため GUI アプリでは使えない。
 # 代わりに po_token 不要で通りやすいクライアントを順に試し、最初に成功したものを使う。
-DL_CLIENTS = ["ANDROID_VR", "IOS", "TV", "MWEB", "WEB_EMBED"]
+# ⚠️ ANDROID_VR を先頭から動かさないこと（2026-08-15 実測）。
+# pytubefix 10.11 時点で「実際にバイトを返す」のは ANDROID_VR だけ。
+#   ANDROID_VR … 実データ取得 OK（ftypdash が返る）。ただし bot 判定されると弾かれる
+#   TV/WEB/WEB_SAFARI … yt.streams は成功するが URL が SABR/UMP。素の GET では
+#                       `sabr.malformed_config` が 31 byte 返るだけでダウンロード不可
+#   MWEB … 実データ取得 OK。ただし 403 を返すこともあり不安定なので ANDROID_VR の次
+#   IOS … 400（YouTube が iOS クライアントを実質廃止）
+#   WEB_EMBED … VideoUnavailable
+# つまり「疎通したクライアント」を採用すると、SABR 組を掴んだ瞬間に
+# ダウンロード段階で落ちる（しかもフォールバック済みなので後がない）。
+# そのため _create_youtube_with_fallback は streams の有無ではなく
+# 「先頭 1 チャンクが実データか」で採否を決める。
+DL_CLIENTS = ["ANDROID_VR", "TV", "MWEB", "WEB", "WEB_SAFARI", "IOS", "WEB_EMBED"]
+
+
+def _stream_is_downloadable(stream):
+    """そのストリーム URL が本当に実データを返すかを 1KB だけ取って確かめる。
+
+    yt.streams が成功しても落とせないことがある。YouTube は一部クライアント
+    （TV / WEB / WEB_SAFARI）に SABR/UMP 形式の URL を返すようになっており、
+    素の GET では Content-Type: application/vnd.yt-ump で
+    `sabr.malformed_config` が 31 byte 返るだけで、動画は 1 byte も取れない。
+
+    これを見ないと「疎通 OK」で採用 → download() 段階で TypeError、
+    しかもフォールバックを抜けた後なので後がない、という最悪の形で落ちる。
+    """
+    # ⚠️ 必ず pytubefix の request 経路で試すこと。
+    # requests で自前 UA を付けて叩くと**クライアント別ヘッダが再現されず**、
+    # 実際には 403 で落ちる MWEB が「取得できる」と誤判定される。
+    # default_range_size は既定 9MB。判定には要らないので一時的に縮めて捨て転送を減らす。
+    original_range = pytubefix_request.default_range_size
+    pytubefix_request.default_range_size = 65536
+    try:
+        chunk = next(pytubefix_request.stream(stream.url), b"")
+        if len(chunk) < 512:
+            return False, f"応答が短すぎる（{len(chunk)} byte）"
+        if chunk.lstrip()[:1] == b"," or b"sabr." in chunk[:64]:
+            return False, "SABR/UMP 応答"
+        return True, ""
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    finally:
+        pytubefix_request.default_range_size = original_range
 
 
 def _create_youtube_with_fallback(url, on_progress_callback=None):
     """bot 検出を回避するため、複数クライアントを順に試して YouTube オブジェクトを生成する。
-    streams へのアクセスで bot 検出が発火するため、そこまで疎通確認してから返す。"""
+
+    採否は「streams が引けたか」ではなく「実データが返るか」で決める。
+    詳細は _stream_is_downloadable と DL_CLIENTS のコメントを参照。
+    """
     last_err = None
     for i, client in enumerate(DL_CLIENTS):
         try:
             yt = YouTube(url, client=client, on_progress_callback=on_progress_callback)
-            # bot 検出は streams / player 取得時に発火するので、ここで疎通確認する
-            _ = yt.streams
+            # bot 検出は streams / player 取得時に発火するので、まずここで疎通確認
+            probe_stream = yt.streams.filter(type="video").first()
+            if probe_stream is None:
+                raise RuntimeError("動画ストリームが 1 本も無い")
+            # 疎通しただけでは足りない。実際に落とせるかまで見る
+            ok, reason = _stream_is_downloadable(probe_stream)
+            if not ok:
+                raise RuntimeError(f"ストリームを取得できない形式です（{reason}）")
             print(f"[INFO] クライアント {client} で接続成功", flush=True)
             return yt
         except Exception as e:
@@ -517,8 +569,18 @@ _BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 ffprobe_path = get_ffprobe_path()
 audiowaveform_path = os.path.join(_BASE_DIR, "bin", "audiowaveform.exe")
 
-# 標準出力をUTF-8に
-sys.stdout.reconfigure(encoding="utf-8")
+# 標準出力・標準エラーを UTF-8 に。
+# stderr が抜けていたのが 2026-08-15 のエラー報告が読めなかった原因。
+# app.py は Popen(..., stderr=STDOUT, encoding="utf-8", errors="backslashreplace")
+# で読むので、stderr が cp932 のままだと**トレースバックだけ**が
+# `\x91S\x83N\x83\x89...` に化けて、肝心の例外メッセージが判読不能になる。
+#
+# None ガード付き: pythonw 経由（Tauri ランチャー）で起動されると
+# sys.stdout / sys.stderr が None になり得る。twitch_chat.py はこのモジュールを
+# lazy import するため、無防備だと import 時点で AttributeError で落ちる。
+for _stream in (sys.stdout, sys.stderr):
+    if _stream is not None:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 def safe_write_json(path, data):
@@ -586,6 +648,128 @@ def make_progress_callback(progress_path, phase_label, base_pct, range_pct):
             "phase": phase_label,
         })
     return callback
+
+
+def _prepare_title_folder(output_folder, title):
+    """出力フォルダを決めて作る。pytubefix / yt-dlp 両経路から使う。
+
+    ⚠️ 旧実装は既存フォルダを問答無用で shutil.rmtree していた。
+    title は「タイトル先頭 30 文字」なので、シリーズ物のように前半が同じ配信だと
+    別動画でも同じフォルダ名になり、**前回 DL した動画・チャット・波形が消えていた**
+    （まだクリップにしていない素材の消失＝復旧不能）。
+    完成品（{title}.mp4）が残っている場合は消さずに連番フォルダへ退避する。
+    中断された残骸（video_temp.mp4 だけ等）なら従来どおり作り直す。
+    """
+    title_folder = os.path.join(output_folder, title)
+    if os.path.exists(title_folder):
+        if os.path.exists(os.path.join(title_folder, f"{title}.mp4")):
+            base_folder = title_folder
+            counter = 1
+            while os.path.exists(title_folder):
+                title_folder = f"{base_folder}({counter})"
+                counter += 1
+            print(
+                f"[INFO] 既存のダウンロード済みフォルダを保護し、別フォルダに保存します: {title_folder}",
+                flush=True,
+            )
+        else:
+            shutil.rmtree(title_folder)
+            print(f"[INFO] 未完了の残骸を削除して再ダウンロード: {title_folder}", flush=True)
+    os.makedirs(title_folder, exist_ok=True)
+    return title_folder
+
+
+def download_with_ytdlp(url, output_folder, max_resolution=720, progress_path=None):
+    """yt-dlp による代替ダウンロード。pytubefix が全滅したときの保険。
+
+    pytubefix は YouTube 側の仕様変更（bot 判定 / SABR 化 / player JS 変更）で
+    定期的に全クライアント落ちする。2026-08-15 のエラー報告がまさにそれで、
+    ユーザーは 7 月にも同じ件を報告している＝再発している。
+    yt-dlp は同じ変更への追従が早く、SABR も po_token も自前で処理するため、
+    pytubefix が死んでいる期間の穴埋めになる。
+
+    戻り値は download_with_pytubefix と同じ (title_folder, safe_title)。
+    """
+    try:
+        import yt_dlp
+    except ImportError:
+        raise RuntimeError(
+            "yt-dlp が入っていないため代替ダウンロードを実行できません。"
+            "`pip install yt-dlp` で導入してください。"
+        )
+
+    print("[INFO] yt-dlp で代替ダウンロードを開始...", flush=True)
+    if progress_path:
+        safe_write_json(progress_path, {
+            "progress": 0,
+            "message": "代替エンジン（yt-dlp）でダウンロード中",
+            "phase": "動画ダウンロード",
+        })
+
+    # メタデータだけ先に取り、pytubefix 経路と同じ規則でフォルダ名を決める
+    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    title = sanitize_filename(info.get("title") or "video")[:30]
+    print(f"[INFO] タイトル: {info.get('title')}", flush=True)
+    print(f"[INFO] 長さ: {info.get('duration')}秒", flush=True)
+
+    title_folder = _prepare_title_folder(output_folder, title)
+    output_file = os.path.join(title_folder, f"{title}.mp4")
+
+    def _hook(d):
+        # 動画 DL は全体の 0〜45%（pytubefix 経路の 動画0-30 + 音声30-45 と揃える）
+        if d.get("status") != "downloading" or not progress_path:
+            return
+        total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+        done = d.get("downloaded_bytes") or 0
+        if total <= 0:
+            return
+        local_pct = min(done / total, 1.0)
+        print(f"[PROGRESS] 動画ダウンロード {int(local_pct * 100)}%", flush=True)
+        safe_write_json(progress_path, {
+            "progress": int(local_pct * 45),
+            "message": f"動画ダウンロード {int(local_pct * 100)}%",
+            "phase": "動画ダウンロード",
+        })
+
+    opts = {
+        # ⚠️ H.264(avc1) + AAC(mp4a) を最優先する。
+        # 無指定だと yt-dlp は AV1 + Opus を選ぶことがあり、pytubefix 経路が返す
+        # avc1 + mp4a と中身が変わってしまう。以降のクリップ生成・波形生成は
+        # 後者を前提にした ffmpeg パイプラインなので、経路によって成否が変わるのは避ける。
+        # 取れない場合だけ codec 指定を外して段階的に緩める。
+        "format": (
+            f"bestvideo[height<={max_resolution}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/"
+            f"bestvideo[height<={max_resolution}]+bestaudio/"
+            f"best[height<={max_resolution}]/best"
+        ),
+        "merge_output_format": "mp4",
+        "outtmpl": os.path.join(title_folder, f"{title}.%(ext)s"),
+        "ffmpeg_location": ffmpeg_path,
+        "quiet": True,
+        "no_warnings": True,
+        "noprogress": True,
+        "progress_hooks": [_hook],
+    }
+
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        ydl.download([url])
+
+    if not os.path.exists(output_file):
+        # merge_output_format が効かず別拡張子で落ちた場合を拾う
+        for name in os.listdir(title_folder):
+            if name.startswith(title) and name.lower().endswith((".mp4", ".mkv", ".webm")):
+                found = os.path.join(title_folder, name)
+                if found != output_file:
+                    shutil.move(found, output_file)
+                break
+
+    if not os.path.exists(output_file):
+        raise RuntimeError("yt-dlp のダウンロード結果が見つかりませんでした")
+
+    print(f"[INFO] yt-dlp ダウンロード完了: {output_file}", flush=True)
+    return title_folder, title
 
 
 def download_with_pytubefix(url, output_folder, max_resolution=720, progress_path=None):
@@ -686,29 +870,7 @@ def download_with_pytubefix(url, output_folder, max_resolution=720, progress_pat
     )
     print(f"[INFO] 音声: {audio_stream.abr}", flush=True)
 
-    # 出力フォルダの決定。
-    # ⚠️ 旧実装は既存フォルダを問答無用で shutil.rmtree していた。
-    # title は「タイトル先頭 30 文字」なので、シリーズ物のように前半が同じ配信だと
-    # 別動画でも同じフォルダ名になり、**前回 DL した動画・チャット・波形が消えていた**
-    # （まだクリップにしていない素材の消失＝復旧不能）。
-    # 完成品（{title}.mp4）が残っている場合は消さずに連番フォルダへ退避する。
-    # 中断された残骸（video_temp.mp4 だけ等）なら従来どおり作り直す。
-    title_folder = os.path.join(output_folder, title)
-    if os.path.exists(title_folder):
-        if os.path.exists(os.path.join(title_folder, f"{title}.mp4")):
-            base_folder = title_folder
-            counter = 1
-            while os.path.exists(title_folder):
-                title_folder = f"{base_folder}({counter})"
-                counter += 1
-            print(
-                f"[INFO] 既存のダウンロード済みフォルダを保護し、別フォルダに保存します: {title_folder}",
-                flush=True,
-            )
-        else:
-            shutil.rmtree(title_folder)
-            print(f"[INFO] 未完了の残骸を削除して再ダウンロード: {title_folder}", flush=True)
-    os.makedirs(title_folder, exist_ok=True)
+    title_folder = _prepare_title_folder(output_folder, title)
 
     video_file = os.path.join(title_folder, "video_temp.mp4")
     audio_file = os.path.join(title_folder, "audio_temp.mp4")
@@ -787,9 +949,32 @@ def download_video_and_chat(url, base_output_folder, progress_path, max_resoluti
     safe_write_json(progress_path, {"progress": 0, "message": "動画ダウンロード開始", "phase": "動画ダウンロード"})
 
     # pytubefixでダウンロード（動画0〜30%、音声30〜45%）
-    title_folder, safe_title = download_with_pytubefix(
-        url, output_folder, max_resolution=max_resolution, progress_path=progress_path
-    )
+    # 全クライアントが落ちたら yt-dlp に切り替える。
+    # pytubefix は YouTube 側の変更で定期的に全滅するので、ここで諦めると
+    # 「アプリが丸ごと使えない」状態になる（2026-07 / 2026-08 に同一ユーザーが報告）。
+    try:
+        title_folder, safe_title = download_with_pytubefix(
+            url, output_folder, max_resolution=max_resolution, progress_path=progress_path
+        )
+    except Exception as e:
+        print(f"[WARN] pytubefix でのダウンロードに失敗: {type(e).__name__}: {e}", flush=True)
+        print("[INFO] yt-dlp に切り替えて再試行します", flush=True)
+        safe_write_json(progress_path, {
+            "progress": 0,
+            "message": "代替エンジンに切り替えて再試行中...",
+            "phase": "動画ダウンロード",
+        })
+        try:
+            title_folder, safe_title = download_with_ytdlp(
+                url, output_folder, max_resolution=max_resolution, progress_path=progress_path
+            )
+        except Exception as e2:
+            # 両方失敗。どちらの理由も残さないと切り分けができない
+            raise RuntimeError(
+                f"動画のダウンロードに失敗しました。"
+                f"pytubefix: {type(e).__name__}: {e} / "
+                f"yt-dlp: {type(e2).__name__}: {e2}"
+            ) from e2
 
     safe_write_json(
         progress_path, {"progress": 45, "message": "チャットダウンロード中", "phase": "チャットダウンロード"}

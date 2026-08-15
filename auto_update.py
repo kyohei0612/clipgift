@@ -437,7 +437,11 @@ def _sync_pip_packages_from_requirements():
     creationflags = 0x08000000 if os.name == "nt" else 0
     try:
         result = subprocess.run(
-            [python_exe, "-m", "pip", "install", "--user", "-r", req_path, "--quiet"],
+            # --upgrade は必須。これが無いと「入ってさえいれば何もしない」ため、
+            # requirements.txt 側で version 制約を上げても既存ユーザーに届かない。
+            # （docstring は当初から --upgrade と書いてあったが実装に入っていなかった。
+            #   結果 pytubefix が 9.5.x のまま取り残され、YouTube DL が全滅していた）
+            [python_exe, "-m", "pip", "install", "--user", "--upgrade", "-r", req_path, "--quiet"],
             cwd=BASE_DIR,
             creationflags=creationflags,
             timeout=300,

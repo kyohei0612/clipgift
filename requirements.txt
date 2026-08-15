@@ -5,7 +5,17 @@ requests>=2.31,<3.0
 numpy>=1.26,<3.0
 Pillow>=10.0,<12.0
 imageio-ffmpeg>=0.4.9,<1.0
-pytubefix>=6.0,<10.0
+# ⚠️ 上限を付けない（意図的）。
+#   pytubefix は YouTube 側の player JS 変更で頻繁に壊れ、修正は常に最新版で出る。
+#   旧 `>=6.0,<10.0` の上限のせいで 9.5.x に固定され、player `b0d2d49a` を
+#   解析できず全クライアントが RegexMatchError で落ちていた（2026-08-15 エラー報告）。
+#   10.11.0 で TV / MWEB / WEB / WEB_SAFARI の復旧を確認済み。
+#   上限を戻すと同じ事故が再発するので、上げるとき以外は触らないこと。
+pytubefix>=10.11
+
+# pytubefix が全クライアント落ちしたときの代替ダウンローダ（downloader.download_with_ytdlp）。
+# pytubefix と同じ理由で上限を付けない。YouTube 追従は常に最新版で出る。
+yt-dlp>=2026.7
 
 # フォント名の取得と描画可否判定
 #   font_manager.get_font_japanese_name()  … フォント一覧の日本語名

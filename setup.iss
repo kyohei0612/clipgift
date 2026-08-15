@@ -110,7 +110,7 @@ Filename: "{tmp}\{#PythonInstaller}"; Parameters: "/quiet InstallAllUsers=0 Prep
 Filename: "cmd.exe"; Parameters: "/c python -c ""import sys,os; p=sys.executable; pw=p.replace('python.exe','pythonw.exe'); exe=pw if os.path.exists(pw) else p; f=open(os.path.join(sys.argv[1],'python_path.txt'),'w'); f.write(exe); f.close()"" ""{app}\bin"""; StatusMsg: "設定を記録中..."; Flags: waituntilterminated runhidden
 
 ; 必要なライブラリをpipでインストール（v2.0.0 で pywebview 削除、Tauri が WebView2 を直接扱うので不要）
-Filename: "cmd.exe"; Parameters: "/c python -m pip install flask werkzeug pillow numpy requests pytubefix fonttools proglog imageio-ffmpeg cryptography curl_cffi --quiet"; StatusMsg: "必要なライブラリをインストール中..."; Flags: waituntilterminated runhidden
+Filename: "cmd.exe"; Parameters: "/c python -m pip install flask werkzeug pillow numpy requests pytubefix yt-dlp fonttools proglog imageio-ffmpeg cryptography curl_cffi --quiet"; StatusMsg: "必要なライブラリをインストール中..."; Flags: waituntilterminated runhidden
 
 ; インストール完了後に起動するか聞く（Tauri ClipGift.exe を直接起動）
 Filename: "{app}\ClipGift.exe"; Description: "今すぐ起動する"; Flags: nowait postinstall skipifsilent
