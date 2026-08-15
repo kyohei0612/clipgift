@@ -38,9 +38,17 @@ scripts/issued_keys/
 scripts/.issued_keys.jsonl
 
 # サポートセンター（受信メール本文・修正案・返信ログには個人情報を含む可能性）
+# ⚠️ このリポジトリは public。build_and_push.bat は `git add -A` で
+#    全ファイルを巻き込むため、作業ファイルをここに置くと即公開される。
+#    実際 2026-08-16 に報告者のメールアドレス入りの返信下書きを公開してしまい、
+#    履歴書き換えで消す羽目になった。返信下書き・返信ログの類は必ず除外する。
 support_center/.env
 support_center/.env.local
 support_center/incoming/
+support_center/draft_*.md
+support_center/reply_*.md
+support_center/replies/
+support_center/outgoing/
 
 # Cloudflare Workers ローカル開発（node_modules はサイズ大、コミット禁止）
 license_server/node_modules/
