@@ -13,6 +13,29 @@ import csv as csv_module
 from system_utils import get_ffmpeg_path, get_ffprobe_path
 from chat_filter import should_skip_comment, strip_emojis
 
+# --- 子プロセスのコンソール窓を全面的に抑止（Windows） ---
+# pytubefix 10.x は nodejs-wheel-binaries を同梱し、署名解読（sig/nsig）と
+# botGuard で **node.exe を subprocess で起動する**。9.5.x では node が無く
+# 「Node.js not found」でスキップされていたので表面化しなかった。
+#   - sig_nsig/node_runner.py … Cipher 1 個につき node 2 プロセス
+#   - botGuard/bot_guard.py   … po_token 生成でさらに 1 プロセス
+# どちらも creationflags を渡しておらず、ClipGift 本体は Tauri から
+# CREATE_NO_WINDOW（コンソール無し）で起動されるため、node が起動するたびに
+# **新しい黒いコンソール窓が開く**。クライアントを順に試すので大量に開く。
+#
+# pytubefix 側を直せないので、このプロセス内の Popen 既定値として
+# CREATE_NO_WINDOW を強制する。yt-dlp が spawn する ffmpeg にも同じ効果がある。
+# 既に明示指定している箇所とは OR で合成されるので競合しない。
+if os.name == "nt":
+    _CREATE_NO_WINDOW = 0x08000000
+    _orig_popen_init = subprocess.Popen.__init__
+
+    def _popen_no_window(self, *args, **kwargs):
+        kwargs["creationflags"] = kwargs.get("creationflags", 0) | _CREATE_NO_WINDOW
+        return _orig_popen_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = _popen_no_window
+
 # === youtubeChatdl.py インライン ===
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"
